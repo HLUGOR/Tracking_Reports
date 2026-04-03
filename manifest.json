@@ -1,0 +1,20 @@
+{
+  "short_name": "TrackingReports",
+  "name": "TrackingReports - Reportes Standalone",
+  "description": "Aplicación standalone para procesamiento de reportes sin servidor",
+  "homepage": "/",
+  "start_url": "/",
+  "display": "standalone",
+  "scope": "/",
+  "background_color": "#ffffff",
+  "theme_color": "#1f4e78",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' fill='%231f4e78'/><text x='96' y='120' font-size='80' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>TR</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
