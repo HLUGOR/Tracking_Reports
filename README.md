@@ -74,27 +74,49 @@ tracking-reports/
 └── package.json
 ```
 
+## � Funcionalidades Principales
+
+### 1. Gestión de Librerías
+- **Plataformas**: LATAM, BRAZIL, AMAZON, SONY ONE, etc.
+- **Categorías**: serie (30/45/60 min), película (120 min), etc.
+- **Versiones**: importar en lote desde Excel, auto-detectar duración/plataforma
+- **Colores**: personalizar por categoría para mejor visualización
+
+### 2. Reporte de Plataformas
+- **Filtrado**: por período (APPROVED_DATE, AIR_DATE, o sin filtro)
+- **Agregación**: plataforma → editor → categoría → ítems + minutos
+- **Aislamiento**: cada plataforma sólo muestra sus categorías
+- **Resolución**: duración exacta es fuente de verdad (30 min ≠ 60 min)
+- **Export Excel**: 
+  - Una hoja por plataforma (Editor | [categorías] | Minutos | Total)
+  - Hoja "Resumen" con totales por plataforma
+  - Hoja "Auditoría" (versiones sin categoría, plataformas no registradas, etc.)
+
+### 3. Importación Excel Masiva
+- Sin cabecera: auto-detecta columna A como nombre de versión
+- Duración por sufijo: sufijo 1-4 → 30 min, 5-6 → 60 min, 9-10 → 120 min
+- Deduplicación: evita importar versiones existentes
+- Auto-reparación: `repairVersionIds()` si hay colisiones por importes rápidos
+
 ## 🔄 Flujos Principales
 
-### Cargar Excel → Generar Reporte
+### Cargar Excel → Generar Reporte de Plataformas
 
 ```
-1. Usuario selecciona archivo Excel
-2. ExcelParser.parseFile() → convierte a array
-3. ExcelValidator.validateColumns() → valida estructura
-4. Estado almacenado en excelStore
-5. EditorReportsEngine.calculateByEditor() → calcula en cliente
-6. Reportes se muestran en < 1 segundo
-7. ExcelExporter.exportToExcel() → descargar resultado
-```
-
-### Gestionar Librerías
-
-```
-1. HierarchicalDataManager → agrupa datos
-2. localStorage/IndexedDB → persiste
-3. Cambios guardan automáticamente
-4. Usuario puede exportar/importar JSON
+1. Usuario carga archivo Excel (Editor, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE)
+2. ColumnMapper → mapea columnas del usuario a esquema estándar
+3. ExcelStorage → almacena filas en Cliente
+4. Definir Librerías:
+   - LibraryView → crear Plataformas, Categorías, Versiones
+   - Auto-asignar versiones por duración detectada
+5. General Reporte:
+   - Seleccionar período + campo de fecha
+   - PlatformReportsEngine.buildReport()
+     ├─ VersionMatcher.classify() → duración real
+     ├─ resolveCategoryForPlatform() → duración exacta → category.id único
+     └─ Acumular en byCategory[id]
+6. Visualizar reporte con desglose por editor
+7. Exportar a Excel
 ```
 
 ## 🔐 Privacidad y Seguridad
@@ -104,8 +126,9 @@ tracking-reports/
 ✅ **Sin dependencias externas:** Cero Http calls a APIs externas  
 ✅ **Validación:** Todas las entradas validadas en cliente
 
-## 📊 FASE 1: MVP (Completado)
+## 🎯 Estado de Desarrollo
 
+### ✅ FASE 1: MVP (Completado)
 - [x] Setup inicial
 - [x] ExcelParser + ExcelValidator
 - [x] EditorReportsEngine
@@ -113,13 +136,23 @@ tracking-reports/
 - [x] Exportación Excel/JSON
 - [x] Persistencia local
 
-## 📋 FASE 2: Completo (Próxima)
+### ✅ FASE 2: Reportes de Plataforma (Completado)
+- [x] Gestión de Librerías (Plataformas → Categorías → Versiones)
+- [x] **Reporte de Plataformas** con aislamiento de categorías
+- [x] Clasificación por duración exacta (no por nombre)
+- [x] Export Excel: una hoja por plataforma + Resumen + Auditoría
+- [x] Filtros por fecha (APPROVED_DATE, AIR_DATE, sin filtro)
+- [x] Auditoría: plataformas/versiones no registradas, filas descartadas
+- [x] Fix: uso de category.id como clave única (evita colisiones)
+- [x] Fix: repairVersionIds() para importes masivos sin duplicados
 
-- [ ] Gestión de Librerías
-- [ ] Reportes de Producción
-- [ ] Cálculo de Métricas
-- [ ] Gráficos mejorados
-- [ ] Exportación PDF
+### 📋 FASE 3: Próximas Mejoras
+- [ ] Reporte de Editores (agregados por editor)
+- [ ] Gráficos: barras, pie charts, tendencias
+- [ ] Filtros avanzados por editor/categoría/duración
+- [ ] Caché de reportes generados
+- [ ] Dashboard con KPIs principales
+- [ ] Deploy en servidor Node o Azure
 
 ## 🧪 Testing
 
@@ -144,7 +177,7 @@ MIT
 
 ---
 
-**Versión:** 1.0.0  
-**Estado:** ALPHA (MVP)  
-**Última actualización:** 2 de abril de 2026  
-**Autor:** Tu Nombre
+**Versión:** 2.0.0  
+**Estado:** BETA (Reportes de Plataforma)  
+**Última actualización:** 6 de abril de 2026  
+**Changelog:** Ver [CHANGELOG_SESION_6ABRIL_2026.md](./CHANGELOG_SESION_6ABRIL_2026.md)
