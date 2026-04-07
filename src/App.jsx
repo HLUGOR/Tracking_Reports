@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import './App.css';
 import ExcelUpload from './components/dataImport/ExcelUpload';
 import EditorReportsView from './components/reports/EditorReportsView';
+import PlatformReportsView from './components/reports/PlatformReportsView';
 import LibraryView from './components/dataImport/LibraryView';
 import excelStore from './store/excelStore';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'reports'
+  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'platform-reports' | 'reports' | 'library'
   const excelRows = excelStore((state) => state.excelRows);
 
   return (
@@ -31,11 +32,18 @@ function App() {
               📥 Cargar Excel
             </button>
             <button
+              className={`menu-item ${activeTab === 'platform-reports' ? 'active' : ''}`}
+              onClick={() => setActiveTab('platform-reports')}
+              disabled={excelRows.length === 0}
+            >
+              🌐 Reporte Plataformas
+            </button>
+            <button
               className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
               disabled={excelRows.length === 0}
             >
-              📈 Reportes
+              📈 Reporte Editores
             </button>
             <button
               className={`menu-item ${activeTab === 'library' ? 'active' : ''}`}
@@ -48,7 +56,13 @@ function App() {
 
         {/* Content Area */}
         <div className="app-content">
-          {activeTab === 'upload' && <ExcelUpload onSuccess={() => setActiveTab('reports')} />}
+          {activeTab === 'upload' && <ExcelUpload onSuccess={() => setActiveTab('platform-reports')} />}
+          {activeTab === 'platform-reports' && excelRows.length > 0 && <PlatformReportsView />}
+          {activeTab === 'platform-reports' && excelRows.length === 0 && (
+            <div className="empty-state">
+              <p>⬆️ Carga un archivo Excel primero</p>
+            </div>
+          )}
           {activeTab === 'reports' && excelRows.length > 0 && <EditorReportsView />}
           {activeTab === 'reports' && excelRows.length === 0 && (
             <div className="empty-state">

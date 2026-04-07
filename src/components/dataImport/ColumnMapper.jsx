@@ -15,16 +15,15 @@ function ColumnMapper({ fileName, headers, onMappingComplete, onCancel }) {
   const [errors, setErrors] = useState([]);
 
   const requiredFields = [
-    { key: 'editor', label: '👤 Editor/Usuario', description: 'Nombre del editor responsable' },
-    { key: 'date', label: '📅 Fecha', description: 'Fecha del trabajo' },
-    { key: 'hours', label: '⏱️ Horas', description: 'Horas trabajadas' },
-    { key: 'task', label: '✓ Tarea', description: 'Descripción de la tarea' },
+    { key: 'editor', label: '👤 EDITOR', description: 'Nombre del editor responsable' },
+    { key: 'version', label: '📦 VERSION', description: 'Versión del contenido' },
+    { key: 'platform', label: '🌐 PLATFORM', description: 'Plataforma de distribución' },
+    { key: 'season', label: '🎬 SEASON', description: 'Temporada (para plataformas sin versión)' },
+    { key: 'approved_date', label: '✅ APPROVED_DATE', description: 'Fecha de aprobación' },
   ];
 
   const optionalFields = [
-    { key: 'category', label: '📂 Categoría', description: '(Opcional) Categoría de trabajo' },
-    { key: 'platform', label: '🌐 Plataforma', description: '(Opcional) Plataforma' },
-    { key: 'version', label: '📦 Versión', description: '(Opcional) Versión' },
+    { key: 'air_date', label: '📅 AIR_DATE', description: 'Fecha de emisión/aire (opcional)' },
   ];
 
   // Validar mapeo

@@ -6,6 +6,10 @@
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
 
+// Generador de IDs únicos: timestamp + contador incremental para evitar colisiones
+let _idCounter = 0;
+const uniqueId = () => Date.now() * 1000 + (++_idCounter % 1000);
+
 const libraryStore = create(
   devtools(
     persist(
@@ -19,7 +23,7 @@ const libraryStore = create(
         // ===== PLATAFORMAS =====
         addPlatform: (platform) =>
           set((state) => ({
-            platforms: [...state.platforms, { id: Date.now(), active: true, ...platform }],
+            platforms: [...state.platforms, { id: uniqueId(), active: true, ...platform }],
           })),
         
         updatePlatform: (id, updates) =>
@@ -39,7 +43,7 @@ const libraryStore = create(
         // ===== CATEGORÍAS =====
         addCategory: (category) =>
           set((state) => ({
-            categories: [...state.categories, { id: Date.now(), ...category }],
+            categories: [...state.categories, { id: uniqueId(), ...category }],
           })),
         
         updateCategory: (id, updates) =>
@@ -59,7 +63,7 @@ const libraryStore = create(
         // ===== VERSIONES =====
         addVersion: (version) =>
           set((state) => ({
-            versions: [...state.versions, { id: Date.now(), ...version }],
+            versions: [...state.versions, { id: uniqueId(), ...version }],
           })),
         
         updateVersion: (id, updates) =>
@@ -71,7 +75,16 @@ const libraryStore = create(
           set((state) => ({
             versions: state.versions.filter((v) => v.id !== id),
           })),
-        
+
+        // Repara IDs duplicados asignando un ID único a cada versión
+        repairVersionIds: () =>
+          set((state) => ({
+            versions: state.versions.map((v, idx) => ({ ...v, id: Date.now() * 10000 + idx })),
+          })),
+
+        // Reemplaza todas las versiones de una vez (usado por auto-asignar masivo)
+        setVersions: (versions) => set(() => ({ versions })),
+
         getVersionsByCategory: (categoryId) =>
           get().versions.filter((v) => v.categoryId === categoryId),
         

@@ -8,6 +8,7 @@ import ExcelValidator from '../../core/excel/ExcelValidator';
 import ColumnMapper from './ColumnMapper';
 import excelStore from '../../store/excelStore';
 import './ExcelUpload.css';
+import { downloadTemplateExcel } from '../../core/excel/downloadTemplate';
 
 function ExcelUpload({ onSuccess }) {
   const fileInputRef = useRef(null);
@@ -18,6 +19,11 @@ function ExcelUpload({ onSuccess }) {
   const [showColumnMapper, setShowColumnMapper] = useState(false);
   const [parsedData, setParsedData] = useState(null); // Guardar datos parseados mientras se mapea
   const [currentFileName, setCurrentFileName] = useState('');
+
+  // Extraer acciones del store al nivel del componente (no dentro de callbacks)
+  const setExcelRows = excelStore((state) => state.setExcelRows);
+  const setHeaders = excelStore((state) => state.setHeaders);
+  const setValidationResult = excelStore((state) => state.setValidationResult);
 
 
 
@@ -67,10 +73,6 @@ function ExcelUpload({ onSuccess }) {
     if (!parsedData) return;
 
     setShowColumnMapper(false);
-
-    const setExcelRows = excelStore((state) => state.setExcelRows);
-    const setHeaders = excelStore((state) => state.setHeaders);
-    const setValidationResult = excelStore((state) => state.setValidationResult);
 
     // Actualizar estado
     setHeaders(parsedData.headers);
@@ -219,6 +221,14 @@ function ExcelUpload({ onSuccess }) {
             </li>
           </ol>
         </div>
+
+        <button
+          className="btn btn-secondary"
+          style={{ marginBottom: '1rem' }}
+          onClick={downloadTemplateExcel}
+        >
+          📥 Descargar Template Excel
+        </button>
       </div>
 
       {/* ColumnMapper Modal */}
