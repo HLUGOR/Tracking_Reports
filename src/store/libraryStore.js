@@ -128,12 +128,14 @@ const libraryStore = create(
             platforms: data.platforms || [],
             categories: data.categories || [],
             versions: data.versions || [],
+            columnMappings: data.columnMappings || [],
           }),
         
         exportLibraryData: () => ({
           platforms: get().platforms,
           categories: get().categories,
           versions: get().versions,
+          columnMappings: get().columnMappings,
         }),
         
         clearLibrary: () =>

@@ -470,7 +470,7 @@ function LibraryView() {
           alert('Archivo inválido: debe contener platforms, categories y versions.');
           return;
         }
-        if (window.confirm(`¿Importar librería?\n\nEsto reemplazará tu librería actual con:\n• ${data.platforms.length} plataformas\n• ${data.categories.length} categorías\n• ${data.versions.length} versiones`)) {
+        if (window.confirm(`¿Importar librería?\n\nEsto reemplazará tu librería actual con:\n• ${data.platforms.length} plataformas\n• ${data.categories.length} categorías\n• ${data.versions.length} versiones\n• ${(data.columnMappings || []).length} mapeos de columnas`)) {
           libraryStore.getState().importLibraryData(data);
           alert('✅ Librería importada correctamente.');
         }
