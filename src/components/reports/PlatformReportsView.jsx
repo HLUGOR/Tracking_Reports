@@ -25,7 +25,7 @@ function buildCategoryLabel(cat) {
   const rawName = (cat.label || cat.name || cat.category_key || '').trim();
   const cleanName = rawName
     .replace(/\s*\(\d+\s*min\)/gi, '')   // quita "(60 min)" o "(60min)"
-    .replace(/\s+\d+min\b/gi, '')         // quita " 45min"
+    .replace(/\s+\d+\s*min\b/gi, '')      // quita " 45min" o " 120 min"
     .replace(/\s+\d+\s*$/, '')            // quita número suelto al final " 60"
     .trim();
   const dur = Number(cat.duration_minutes || cat.duration || 0);
