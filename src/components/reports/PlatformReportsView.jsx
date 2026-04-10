@@ -245,6 +245,97 @@ function PlatformReportsView() {
         continue;
       }
 
+      // ── BP&I ───────────────────────────────────────────────────────────────
+      if (plt.logica === 'logica_bp_i') {
+        ws.columns = [
+          { width: 28 }, { width: 14 }, { width: 12 },
+        ];
+
+        // Fila título (merge A1:C1)
+        const titleRow = ws.addRow([`${plt.platform}  •  ${periodoStr}`]);
+        ws.mergeCells(`A${titleRow.number}:C${titleRow.number}`);
+        const tc = titleRow.getCell(1);
+        tc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+        tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }; // blue-900 para BP&I
+        tc.alignment = { horizontal: 'center', vertical: 'middle' };
+        titleRow.height = 28;
+        ws.addRow([]);
+
+        // Encabezado
+        const hdr = ws.addRow(['Editor', 'MINUTOS', 'TOTAL']);
+        hdr.height = 20;
+        ['A','B','C'].forEach((col, i) => {
+          applyHeaderCell(hdr.getCell(col), ['Editor','MINUTOS','TOTAL'][i], COLOR.headerDark);
+        });
+
+        // Filas editores
+        plt.editors.forEach((ed, idx) => {
+          const row = ws.addRow([
+            ed.editor,
+            Math.round(ed.totalMinutes),
+            ed.totalCount,
+          ]);
+          const isAlt = idx % 2 === 1;
+          applyDataCell(row.getCell('A'), ed.editor, isAlt, 'left');
+          applyDataCell(row.getCell('B'), Math.round(ed.totalMinutes), isAlt);
+          applyDataCell(row.getCell('C'), ed.totalCount, isAlt);
+        });
+
+        // Fila TOTAL
+        const totRow = ws.addRow([
+          'TOTAL',
+          Math.round(plt.totalMinutes),
+          plt.totalCount,
+        ]);
+        totRow.height = 18;
+        ['A','B','C'].forEach((col) => applyTotalCell(totRow.getCell(col), totRow.getCell(col).value));
+        continue;
+      }
+
+      // ── YOUTUBE ───────────────────────────────────────────────────────────
+      if (plt.logica === 'logica_youtube') {
+        ws.columns = [
+          { width: 28 }, { width: 14 }, { width: 14 }, { width: 12 },
+        ];
+
+        // Fila título (merge A1:D1)
+        const titleRow = ws.addRow([`${plt.platform}  •  ${periodoStr}`]);
+        ws.mergeCells(`A${titleRow.number}:D${titleRow.number}`);
+        const tc = titleRow.getCell(1);
+        tc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+        tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCC0000' } }; // rojo YouTube
+        tc.alignment = { horizontal: 'center', vertical: 'middle' };
+        titleRow.height = 28;
+        ws.addRow([]);
+
+        // Encabezado
+        const hdr = ws.addRow(['Editor', 'CLIPS', 'SHORT', 'TOTAL']);
+        hdr.height = 20;
+        ['A','B','C','D'].forEach((col, i) => {
+          applyHeaderCell(hdr.getCell(col), ['Editor','CLIPS','SHORT','TOTAL'][i], COLOR.headerDark);
+        });
+
+        // Filas editores
+        plt.editors.forEach((ed, idx) => {
+          const clips  = ed.byCategory['clips']?.count  || 0;
+          const shorts = ed.byCategory['shorts']?.count || 0;
+          const row = ws.addRow([ed.editor, clips, shorts, ed.totalCount]);
+          const isAlt = idx % 2 === 1;
+          applyDataCell(row.getCell('A'), ed.editor, isAlt, 'left');
+          applyDataCell(row.getCell('B'), clips,  isAlt);
+          applyDataCell(row.getCell('C'), shorts, isAlt);
+          applyDataCell(row.getCell('D'), ed.totalCount, isAlt);
+        });
+
+        // Fila TOTAL
+        const totClips  = plt.totalByCategory['clips']?.count  || 0;
+        const totShorts = plt.totalByCategory['shorts']?.count || 0;
+        const ytTotRow  = ws.addRow(['TOTAL', totClips, totShorts, plt.totalCount]);
+        ytTotRow.height = 18;
+        ['A','B','C','D'].forEach((col) => applyTotalCell(ytTotRow.getCell(col), ytTotRow.getCell(col).value));
+        continue;
+      }
+
       // ── LÓGICA ESTÁNDAR ────────────────────────────────────────────────────
       const platCats = [];
       plt.editors.forEach((ed) => {
@@ -320,10 +411,11 @@ function PlatformReportsView() {
     // ── Hoja RESUMEN ───────────────────────────────────────────────────────
     const wsRes = wb.addWorksheet('Resumen');
 
-    // Recopilar todas las categorías
+    // Recopilar todas las categorías (solo plataformas con categorías; las sin categorías como COMERCIALES y BP&I no tienen)
     const allCatKeys = [];
     const allCatLabelMap = {};
     reportData.platforms.forEach((plt) => {
+      
       (plt.categories || []).forEach((cat) => {
         if (!allCatKeys.includes(cat.category_key)) {
           allCatKeys.push(cat.category_key);
@@ -380,19 +472,27 @@ function PlatformReportsView() {
 
     reportData.platforms.forEach((plt, idx) => {
       const catCounts = sortedAllCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
-      const row = wsRes.addRow([plt.platform, ...catCounts, Math.round(plt.totalMinutes), plt.totalCount]);
+      // Para COMERCIALES los minutos se calculan desde segundos
+      const plMinutes = plt.logica === 'logica_comerciales'
+        ? Math.round(plt.totalSeconds / 60)
+        : Math.round(plt.totalMinutes);
+      const row = wsRes.addRow([plt.platform, ...catCounts, plMinutes, plt.totalCount]);
       const isAlt = idx % 2 === 1;
       applyDataCell(row.getCell(1), plt.platform, isAlt, 'left');
       catCounts.forEach((_, i) => applyDataCell(row.getCell(2 + i), catCounts[i], isAlt));
-      applyDataCell(row.getCell(2 + sortedAllCats.length), Math.round(plt.totalMinutes), isAlt);
+      applyDataCell(row.getCell(2 + sortedAllCats.length), plMinutes, isAlt);
       applyDataCell(row.getCell(3 + sortedAllCats.length), plt.totalCount, isAlt);
     });
 
-    // Gran total resumen
+    // Gran total resumen (todas las plataformas)
     const grandCatCounts = sortedAllCats.map((cat) =>
       reportData.platforms.reduce((s, p) => s + (p.totalByCategory[cat]?.count || 0), 0)
     );
-    const grandRow = wsRes.addRow(['GRAN TOTAL', ...grandCatCounts, Math.round(reportData.grandTotal.minutes), reportData.grandTotal.count]);
+    const resumenGrandMinutes = reportData.platforms.reduce((s, p) =>
+      s + (p.logica === 'logica_comerciales' ? p.totalSeconds / 60 : p.totalMinutes), 0
+    );
+    const resumenGrandCount = reportData.platforms.reduce((s, p) => s + p.totalCount, 0);
+    const grandRow = wsRes.addRow(['GRAN TOTAL', ...grandCatCounts, Math.round(resumenGrandMinutes), resumenGrandCount]);
     grandRow.height = 18;
     for (let i = 1; i <= totalResumen; i++) applyTotalCell(grandRow.getCell(i), grandRow.getCell(i).value);
 
@@ -585,6 +685,61 @@ function PlatformReportsView() {
                               <td><strong>TOTAL</strong></td>
                               <td><strong>{formatTimecode(plt.totalSeconds)}</strong></td>
                               <td><strong>{secondsToMinutes(plt.totalSeconds)}</strong></td>
+                              <td><strong>{plt.totalCount}</strong></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      ) : plt.logica === 'logica_bp_i' ? (
+                        <table className="pr-cat-table pr-bp-i-table">
+                          <thead>
+                            <tr>
+                              <th>Editor</th>
+                              <th>MINUTOS</th>
+                              <th>TOTAL</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {plt.editors.map((ed) => (
+                              <tr key={ed.editor}>
+                                <td>{ed.editor}</td>
+                                <td>{Math.round(ed.totalMinutes)}</td>
+                                <td>{ed.totalCount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="pr-total-row">
+                              <td><strong>TOTAL</strong></td>
+                              <td><strong>{Math.round(plt.totalMinutes)}</strong></td>
+                              <td><strong>{plt.totalCount}</strong></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      ) : plt.logica === 'logica_youtube' ? (
+                        <table className="pr-cat-table pr-youtube-table">
+                          <thead>
+                            <tr>
+                              <th>Editor</th>
+                              <th>CLIPS</th>
+                              <th>SHORT</th>
+                              <th>TOTAL</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {plt.editors.map((ed) => (
+                              <tr key={ed.editor}>
+                                <td>{ed.editor}</td>
+                                <td>{ed.byCategory['clips']?.count || 0}</td>
+                                <td>{ed.byCategory['shorts']?.count || 0}</td>
+                                <td>{ed.totalCount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="pr-total-row">
+                              <td><strong>TOTAL</strong></td>
+                              <td><strong>{plt.totalByCategory['clips']?.count || 0}</strong></td>
+                              <td><strong>{plt.totalByCategory['shorts']?.count || 0}</strong></td>
                               <td><strong>{plt.totalCount}</strong></td>
                             </tr>
                           </tfoot>

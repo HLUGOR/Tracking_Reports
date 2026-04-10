@@ -9,33 +9,14 @@
  *   - logica_de_versiones : busca VERSION en la librería → categoría + duración reales
  *   - logica_sin_version  : usa columna SEASON → serie (season != '0') o película (season = '0')
  *   - iberia_especial     : igual que logica_de_versiones, pero sin fallback (si no está registrada, no cuenta)
+ *   - logica_comerciales  : suma DURATION en timecode (HH:MM:SS), cuenta assets
+ *   - logica_bp_i         : suma MINUTOS netos (números simples), cuenta assets
  *
  * Columnas esperadas del Excel (post-mapeo por ColumnMapper):
- *   EDITOR, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE
+ *   EDITOR, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE, DURATION (comerciales), MINUTOS (bp&i)
  */
 
 import VersionMatcher from './VersionMatcher';
-
-// ─── Configuración de plataformas (mirror de plataforma_config.json) ─────────
-// Se inicializa desde libraryStore.platforms al llamar al motor.
-// Esta config se puede extender desde LibraryView en el futuro.
-const DEFAULT_PLATAFORMA_CONFIG = {
-  'SONY ONE': {
-    logica: 'logica_sin_version',
-    duracion_serie_minutos: 45,
-    duracion_pelicula_minutos: 120,
-    categorias: ['serie_45min', 'pelicula_120min'],
-  },
-  AMAZON: {
-    logica: 'logica_sin_version',
-    duracion_serie_minutos: 60,
-    duracion_pelicula_minutos: 120,
-    categorias: ['serie_amazon_60min', 'pelicula_amazon_120min'],
-  },
-  COMERCIALES: {
-    logica: 'logica_comerciales',
-  },
-};
 
 // Lógica por defecto para plataformas no configuradas explícitamente
 const DEFAULT_LOGICA = 'logica_de_versiones';
@@ -55,8 +36,7 @@ class PlatformReportsEngine {
   static buildReport(rows, startDate, endDate, library = {}, dateField = 'approved_date') {
     const { platforms = [], categories = [], versions = [] } = library;
 
-    // Construir mapa de plataformas válidas desde la librería
-    // (plataforma existe si está registrada en libraryStore.platforms)
+    // Construir mapa de plataformas válidas: solo las registradas en libraryStore
     const validPlatforms = new Set(
       platforms.map((p) => (p.name || '').trim().toUpperCase())
     );
@@ -67,10 +47,6 @@ class PlatformReportsEngine {
     platforms.forEach((p) => {
       const key = (p.name || '').trim().toUpperCase();
       plataformaConfig[key] = p;
-    });
-    // Agregar las de DEFAULT que no estén en librería
-    Object.entries(DEFAULT_PLATAFORMA_CONFIG).forEach(([key, cfg]) => {
-      if (!plataformaConfig[key]) plataformaConfig[key] = cfg;
     });
 
     // ── Mapa de categorías por plataforma (replica getCategoriesForPlatform de server.cjs) ──
@@ -191,6 +167,36 @@ class PlatformReportsEngine {
           duration_seconds: durationSecs,
           isComerciales: true,
         };
+      } else if (logica === 'logica_youtube') {
+        // Lógica YouTube: acumula CLIP y SHORT como conteos independientes por editor.
+        // Lee columnas 'CLIP' y 'SHORT' (case-insensitive) directamente del Excel.
+        const clipKey   = Object.keys(row).find((k) => k.trim().toLowerCase() === 'clip');
+        const shortKey  = Object.keys(row).find((k) => k.trim().toLowerCase() === 'short');
+        const clipVal   = parseInt(clipKey  ? row[clipKey]  : 0, 10) || 0;
+        const shortVal  = parseInt(shortKey ? row[shortKey] : 0, 10) || 0;
+        classified = {
+          category_key: null,
+          duration_minutes: 0,
+          duration_seconds: 0,
+          isYoutube: true,
+          clips: clipVal,
+          shorts: shortVal,
+        };
+      } else if (logica === 'logica_bp_i') {
+        // Lógica BP&I: cuenta assets y acumula MINUTOS netos (números simples).
+        // No usa VERSION ni SEASON. Acepta columna llamada 'MINUTOS' o 'DURATION' (case-insensitive).
+        // Diferencia con logica_comerciales: interpreta el valor como número, no timecode.
+        const minutosKey = Object.keys(row).find(
+          (k) => ['minutos', 'duration'].includes(k.trim().toLowerCase())
+        );
+        const minutesRaw = String(minutosKey ? row[minutosKey] : '').trim();
+        const minutes = parseFloat(minutesRaw) || 0;
+        classified = {
+          category_key: null,
+          duration_minutes: minutes,
+          duration_seconds: 0, // no aplica para BP&I
+          isBPI: true,
+        };
       } else {
         // logica_de_versiones: buscar en librería primero.
         // Si no está → fallback numérico por sufijo (replica Tracking_Project).
@@ -202,9 +208,9 @@ class PlatformReportsEngine {
         }
       }
 
-      // ── Solo contar si hay classified; para comerciales se permiten duraciones 0 ──
+      // ── Solo contar si hay classified; para comerciales/BP&I/YouTube se permiten duraciones 0 ──
       if (!classified) return;
-      if (!classified.isComerciales && classified.duration_minutes <= 0) return;
+      if (!classified.isComerciales && !classified.isBPI && !classified.isYoutube && classified.duration_minutes <= 0) return;
 
       const { category_key: rawCategoryKey, duration_minutes } = classified;
 
@@ -238,15 +244,28 @@ class PlatformReportsEngine {
           totalSeconds: 0,
         };
       }
-      // Para logica_comerciales no acumulamos por categoría
-      if (category_key !== null) {
+      // Para logica_comerciales y logica_bp_i no acumulamos por categoría (category_key es null)
+      // Para logica_youtube acumulamos CLIPS y SHORTS en byCategory
+      if (classified.isYoutube) {
+        if (!platformMap[effectivePlatform][editor].byCategory['clips']) {
+          platformMap[effectivePlatform][editor].byCategory['clips'] = { count: 0, minutes: 0 };
+        }
+        if (!platformMap[effectivePlatform][editor].byCategory['shorts']) {
+          platformMap[effectivePlatform][editor].byCategory['shorts'] = { count: 0, minutes: 0 };
+        }
+        platformMap[effectivePlatform][editor].byCategory['clips'].count  += classified.clips;
+        platformMap[effectivePlatform][editor].byCategory['shorts'].count += classified.shorts;
+        platformMap[effectivePlatform][editor].totalCount += (classified.clips + classified.shorts);
+      } else if (category_key !== null) {
         if (!platformMap[effectivePlatform][editor].byCategory[category_key]) {
           platformMap[effectivePlatform][editor].byCategory[category_key] = { count: 0, minutes: 0 };
         }
         platformMap[effectivePlatform][editor].byCategory[category_key].count++;
         platformMap[effectivePlatform][editor].byCategory[category_key].minutes += duration_minutes;
+        platformMap[effectivePlatform][editor].totalCount++;
+      } else {
+        platformMap[effectivePlatform][editor].totalCount++;
       }
-      platformMap[effectivePlatform][editor].totalCount++;
       platformMap[effectivePlatform][editor].totalMinutes += duration_minutes;
       platformMap[effectivePlatform][editor].totalSeconds += (classified.duration_seconds || 0);
     });

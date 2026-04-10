@@ -74,9 +74,22 @@ function ExcelUpload({ onSuccess }) {
 
     setShowColumnMapper(false);
 
+    // Aplicar el mapeo: renombrar las claves de cada fila al nombre estándar
+    // mapping = { editor: 'Columna A', version: 'Columna B', ... }
+    // Resultado: row.editor = row['Columna A'], row.version = row['Columna B'], etc.
+    const mappedRows = parsedData.rows.map((row) => {
+      const newRow = { ...row }; // conservar todas las columnas originales
+      Object.entries(mapping).forEach(([standardKey, originalCol]) => {
+        if (originalCol && originalCol.trim() !== '') {
+          newRow[standardKey] = row[originalCol];
+        }
+      });
+      return newRow;
+    });
+
     // Actualizar estado
     setHeaders(parsedData.headers);
-    setExcelRows(parsedData.rows);
+    setExcelRows(mappedRows);
     setValidationResult(parsedData.validation);
 
     setMsgType('success');

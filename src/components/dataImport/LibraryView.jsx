@@ -560,7 +560,7 @@ function LibraryView() {
             {/* Feedback card post-creación */}
             {savedPlatformInfo && (() => {
               const l = savedPlatformInfo.logica;
-              const isSelfContained = l === 'logica_sin_version' || l === 'logica_comerciales';
+              const isSelfContained = l === 'logica_sin_version' || l === 'logica_comerciales' || l === 'logica_bp_i' || l === 'logica_youtube';
               return (
                 <div style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
@@ -579,6 +579,8 @@ function LibraryView() {
                     <p style={{ margin: '0.25rem 0 0', color: isSelfContained ? '#166534' : '#78350f', lineHeight: 1.5 }}>
                       {l === 'logica_sin_version' && 'Clasifica por columna SEASON automáticamente. No necesita Categorías ni Versiones.'}
                       {l === 'logica_comerciales' && 'Cuenta assets y acumula DURATION. No necesita Categorías ni Versiones.'}
+                      {l === 'logica_bp_i' && 'Cuenta assets y acumula MINUTOS netos. No necesita Categorías ni Versiones.'}
+                      {l === 'logica_youtube' && 'Cuenta CLIPS y SHORTS por editor. No necesita Categorías ni Versiones.'}
                       {(l === 'logica_de_versiones' || l === 'iberia_especial') && (
                         <>Siguiente paso: ve a <strong>📂 Categorías</strong> para crear las categorías de esta plataforma, luego a <strong>📦 Versiones</strong> para registrar las versiones disponibles.</>
                       )}
@@ -618,7 +620,7 @@ function LibraryView() {
                   </thead>
                   <tbody>
                     {platforms.map((p) => {
-                      const isSelfContained = p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales';
+                      const isSelfContained = p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_youtube';
                       const hasCats = categories.some((c) => c.platformId === p.id);
                       return (
                       <tr key={p.id}>
@@ -1059,6 +1061,8 @@ function LibraryView() {
                   <option value="logica_sin_version">logica_sin_version — clasifica por SEASON (sin librería)</option>
                   <option value="iberia_especial">iberia_especial — como versiones, sin fallback</option>
                   <option value="logica_comerciales">logica_comerciales — cuenta assets y acumula DURATION</option>
+                  <option value="logica_bp_i">logica_bp_i — cuenta assets y acumula MINUTOS netos</option>
+                  <option value="logica_youtube">logica_youtube — cuenta CLIPS y SHORTS por editor</option>
                 </select>
 
                 {/* Campos extra solo para logica_sin_version */}
