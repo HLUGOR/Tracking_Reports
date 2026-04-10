@@ -48,7 +48,7 @@ function EditorReportsView() {
         dateField
       );
 
-      // Pivotar: platform Ã— editor â†’ editor Ã— platform
+      // Pivotar: platform × editor → editor × platform
       const editorMap = {};
       platResult.platforms.forEach((plt) => {
         plt.editors.forEach((ed) => {
@@ -89,7 +89,7 @@ function EditorReportsView() {
           totalPlatforms: platforms.length,
         },
         generatedAt: new Date().toISOString(),
-        period: dateField === 'all' ? 'Todos los registros' : `${startDate} â†’ ${endDate}`,
+        period: dateField === 'all' ? 'Todos los registros' : `${startDate} → ${endDate}`,
       });
     } catch (err) {
       console.error('Error generando reporte editores:', err);
@@ -154,16 +154,16 @@ function EditorReportsView() {
   // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div className="editor-reports">
-      <h2>ðŸ“Š Reportes por Editor</h2>
+      <h2>📊 Reportes por Editor</h2>
 
       {/* Filtros */}
       <div className="filters" style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', marginBottom: '1.5rem', background: '#fff', padding: '1rem', borderRadius: '8px', boxShadow: '0 1px 4px #0001' }}>
         <div className="filter-group">
           <label>Filtrar por fecha:</label>
           <select value={dateField} onChange={(e) => setDateField(e.target.value)} style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-            <option value="all">ðŸ—“ Sin filtro de fecha</option>
-            <option value="approved_date">âœ… Fecha aprobaciÃ³n</option>
-            <option value="air_date">ðŸ“¡ Fecha aire</option>
+            <option value="all">🗓 Sin filtro de fecha</option>
+            <option value="approved_date">✅ Fecha aprobación</option>
+            <option value="air_date">📡 Fecha aire</option>
           </select>
         </div>
         {dateField !== 'all' && (
@@ -179,7 +179,7 @@ function EditorReportsView() {
           </>
         )}
         <button onClick={handleGenerate} disabled={loading} style={{ padding: '0.5rem 1.25rem', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-          {loading ? 'â³ Generandoâ€¦' : 'ðŸ“ˆ Generar Reporte'}
+          {loading ? '⏳ Generando…' : '📈 Generar Reporte'}
         </button>
       </div>
 
@@ -247,7 +247,7 @@ function EditorReportsView() {
           {/* Exportar */}
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <button onClick={handleExportExcel} style={{ padding: '0.5rem 1.25rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-              ðŸ“¥ Descargar Excel
+              📥 Descargar Excel
             </button>
           </div>
         </>
