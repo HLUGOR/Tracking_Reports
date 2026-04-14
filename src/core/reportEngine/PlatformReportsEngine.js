@@ -215,13 +215,11 @@ class PlatformReportsEngine {
       const { category_key: rawCategoryKey, duration_minutes } = classified;
 
       // ── Determinar plataforma efectiva (LAT/BRA override) ─────────────────
-      // Para logica_de_versiones: si el nombre de versión contiene prefijo LAT o BRA,
-      // la fila se agrupa bajo la sub-plataforma detectada (LATAM o BRAZIL) en lugar
-      // de la plataforma del Excel. Esto separa métricas aunque el Excel diga "LATAM".
-      // Para iberia_especial: no aplica override (IBERIA no se sub-divide).
-      // Para logica_sin_version: no aplica override (no usa versiones).
+      // Solo aplica cuando la plataforma del Excel ES LATAM: el prefijo LAT_/BRA_
+      // separa LATAM de BRAZIL. Para OFF AIR, VOD y otras plataformas que usan la
+      // librería global de versiones, el prefijo LAT_/BRA_ NO debe re-asignar la fila.
       const effectivePlatform =
-        logica === 'logica_de_versiones' && classified.subPlatform
+        logica === 'logica_de_versiones' && classified.subPlatform && platform === 'LATAM'
           ? classified.subPlatform
           : platform;
 
@@ -370,6 +368,140 @@ class PlatformReportsEngine {
     const s = parseInt(parts[2], 10) || 0;
     // parts[3] = frames → se ignora
     return h * 3600 + m * 60 + s;
+  }
+
+  /**
+   * Calcula horas de esfuerzo por editor agrupadas por effortGroup de plataforma.
+   *
+   * Reglas por lógica:
+   *   - logica_de_versiones / iberia_especial / logica_sin_version:
+   *       Horas = Σ(count_categoría × effortRate_categoría)
+   *   - logica_comerciales:
+   *       Horas = totalSeconds / 3600
+   *   - logica_bp_i:
+   *       Horas = totalMinutes / 60
+   *   - logica_youtube:
+   *       Horas = totalCount (1 hora por clip/short, sin effortRate)
+   *
+   * @param {Object} platformResult - Resultado de buildReport()
+   * @param {Object} library        - { platforms, categories } de libraryStore
+   * @param {number} baseHours      - Horas base para % ocupación (default: 192)
+   * @returns {{ editors, effortGroups, baseHours }}
+   */
+  static buildEffortReport(platformResult, library, baseHours = 192) {
+    const { platforms: libPlatforms = [], categories: libCategories = [] } = library;
+
+    // categoryId (string) → { effortRate, durationHours }
+    const categoryInfoMap = {};
+    libCategories.forEach((c) => {
+      const rate = parseFloat(c.effortRate);
+      const dur = Number(c.duration) || 0;
+      if (!isNaN(rate) && rate > 0) {
+        categoryInfoMap[String(c.id)] = { effortRate: rate, durationHours: dur / 60 };
+      }
+    });
+
+    // platformName → { effortGroup, logica, platformEffortRate, categoryKeyRateMap }
+    const platCfgMap = {};
+    libPlatforms.forEach((p) => {
+      const name = (p.name || '').trim().toUpperCase();
+      const rawRate = parseFloat(p.platformEffortRate);
+      // Para logica_sin_version: mapa key → { effortRate, durationHours } desde p.categorias
+      const categoryKeyRateMap = {};
+      (p.categorias || []).forEach((cat) => {
+        const rate = parseFloat(cat.effortRate);
+        const dur = Number(cat.duration) || 0;
+        if (cat.key && !isNaN(rate) && rate > 0) {
+          categoryKeyRateMap[cat.key] = { effortRate: rate, durationHours: dur / 60 };
+        }
+      });
+      platCfgMap[name] = {
+        effortGroup: (p.effortGroup || '').trim() || 'OTROS',
+        logica: p.logica || 'logica_de_versiones',
+        platformEffortRate: !isNaN(rawRate) && rawRate > 0 ? rawRate : 1,
+        categoryKeyRateMap,
+      };
+    });
+
+    // Collect ordered distinct groups (OTROS always last)
+    const groupOrderMap = new Map();
+    libPlatforms.forEach((p) => {
+      const g = (p.effortGroup || '').trim();
+      if (g && !groupOrderMap.has(g)) groupOrderMap.set(g, groupOrderMap.size);
+    });
+    if (!groupOrderMap.has('OTROS')) groupOrderMap.set('OTROS', groupOrderMap.size);
+    const effortGroups = [...groupOrderMap.keys()].sort(
+      (a, b) => groupOrderMap.get(a) - groupOrderMap.get(b)
+    );
+
+    // Sub-plataformas derivadas: heredan config de su plataforma padre
+    // BRAZIL se genera automáticamente desde versiones de LATAM, no existe como entrada en libraryStore
+    const subPlatformParentMap = { 'BRAZIL': 'LATAM' };
+
+    // editor → { byGroup: { groupName: hours }, totalHours, pctOcupacion, pctFreeTime }
+    const editorMap = {};
+
+    (platformResult.platforms || []).forEach((plt) => {
+      const platName = (plt.platform || '').trim().toUpperCase();
+      const parentName = subPlatformParentMap[platName];
+      const cfg = platCfgMap[platName] || (parentName ? platCfgMap[parentName] : null) || { effortGroup: 'OTROS', logica: 'logica_de_versiones', platformEffortRate: 1, categoryKeyRateMap: {} };
+      const { effortGroup, logica, platformEffortRate, categoryKeyRateMap } = cfg;
+
+      plt.editors.forEach((ed) => {
+        if (!editorMap[ed.editor]) {
+          editorMap[ed.editor] = { editor: ed.editor, byGroup: {} };
+        }
+        if (!editorMap[ed.editor].byGroup[effortGroup]) {
+          editorMap[ed.editor].byGroup[effortGroup] = 0;
+        }
+
+        let hours = 0;
+        if (logica === 'logica_comerciales') {
+          hours = ((ed.totalSeconds || 0) / 3600) * platformEffortRate;
+        } else if (logica === 'logica_bp_i') {
+          hours = ((ed.totalMinutes || 0) / 60) * platformEffortRate;
+        } else if (logica === 'logica_youtube') {
+          hours = (ed.totalCount || 0) * platformEffortRate;
+        } else if (logica === 'logica_sin_version') {
+          // count × (duracion_min / 60) × effortRate por cada key
+          Object.entries(ed.byCategory || {}).forEach(([catKey, catData]) => {
+            const info = categoryKeyRateMap[catKey];
+            if (info != null) hours += (catData.count || 0) * info.durationHours * info.effortRate;
+          });
+          // Fallback: si no hay tasas por key, usar totalMinutes × platformEffortRate
+          if (hours === 0 && Object.keys(categoryKeyRateMap).length === 0) {
+            hours = ((ed.totalMinutes || 0) / 60) * platformEffortRate;
+          }
+        } else {
+          // logica_de_versiones, iberia_especial: count × (duracion_min / 60) × effortRate
+          Object.entries(ed.byCategory || {}).forEach(([catId, catData]) => {
+            const info = categoryInfoMap[String(catId)];
+            if (info != null) {
+              hours += (catData.count || 0) * info.durationHours * info.effortRate;
+            }
+          });
+        }
+
+        editorMap[ed.editor].byGroup[effortGroup] += hours;
+      });
+    });
+
+    const editors = Object.values(editorMap)
+      .map((ed) => {
+        const totalHours = Object.values(ed.byGroup).reduce((s, h) => s + h, 0);
+        const pctOcupacion = baseHours > 0 ? (totalHours / baseHours) * 100 : 0;
+        const pctFreeTime = Math.max(0, 100 - pctOcupacion);
+        return {
+          editor: ed.editor,
+          byGroup: ed.byGroup,
+          totalHours: Math.round(totalHours * 10) / 10,
+          pctOcupacion: Math.round(pctOcupacion),
+          pctFreeTime: Math.round(pctFreeTime),
+        };
+      })
+      .sort((a, b) => b.totalHours - a.totalHours);
+
+    return { editors, effortGroups, baseHours };
   }
 
   static parseDate(dateStr) {

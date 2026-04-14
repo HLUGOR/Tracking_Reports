@@ -64,6 +64,9 @@ function LibraryView() {
   // Filtro de plataforma activo en el tab Categorías
   const [filterCatPlatformId, setFilterCatPlatformId] = useState(null);
 
+  // Sub-tab dentro de Categorías: 'versiones' (logica_de_versiones/iberia) | 'propias' (sin_version/comerciales/etc.)
+  const [catSubTab, setCatSubTab] = useState('versiones');
+
   // Búsqueda en el tab Versiones
   const [versionSearch, setVersionSearch] = useState('');
 
@@ -82,8 +85,16 @@ function LibraryView() {
   const handleSavePlatform = () => {
     if (!formData.name || !formData.logica) return;
 
+    // Normalizar categorias: siempre guardar como objetos {key, duration, effortRate}
+    const normalizedData = {
+      ...formData,
+      categorias: (formData.categorias || []).map(cat =>
+        typeof cat === 'string' ? { key: cat, duration: '', effortRate: null } : cat
+      ),
+    };
+
     if (editingId) {
-      libraryStore.getState().updatePlatform(editingId, formData);
+      libraryStore.getState().updatePlatform(editingId, normalizedData);
       setShowForm(false);
       setFormData({});
       setEditingId(null);
@@ -91,7 +102,7 @@ function LibraryView() {
     }
 
     // Crear la plataforma nueva y obtener su id
-    libraryStore.getState().addPlatform(formData);
+    libraryStore.getState().addPlatform(normalizedData);
     const newPlatform = libraryStore.getState().platforms.find(
       (p) => p.name === formData.name && p.logica === formData.logica
     );
@@ -616,6 +627,8 @@ function LibraryView() {
                     <tr>
                       <th>Nombre</th>
                       <th>Lógica</th>
+                      <th>Grupo Esfuerzo</th>
+                      <th>Tasa Esfuerzo</th>
                       <th>Estado</th>
                       <th>Config</th>
                       <th>Acciones</th>
@@ -630,6 +643,16 @@ function LibraryView() {
                         <td>{p.name}</td>
                         <td>
                           <code>{p.logica}</code>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {p.effortGroup
+                            ? <span style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #86efac', borderRadius: '4px', padding: '2px 8px', fontSize: '0.78rem', fontWeight: 600 }}>{p.effortGroup}</span>
+                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {p.platformEffortRate != null && p.platformEffortRate !== ''
+                            ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', fontWeight: 700 }}>{p.platformEffortRate}×</span>
+                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>}
                         </td>
                         <td>
                           <span className={`status ${p.active ? 'active' : 'inactive'}`}>
@@ -675,7 +698,119 @@ function LibraryView() {
         {/* CATEGORÍAS */}
         {activeTab === 'categories' && (
           <div className="tab-panel">
-            {/* Banner: qué plataformas aplican aquí */}
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0' }}>
+              <button
+                onClick={() => setCatSubTab('versiones')}
+                style={{
+                  padding: '0.45rem 1rem', fontSize: '0.85rem', fontWeight: catSubTab === 'versiones' ? 700 : 400,
+                  border: 'none', borderBottom: catSubTab === 'versiones' ? '3px solid #6366f1' : '3px solid transparent',
+                  background: 'none', cursor: 'pointer', color: catSubTab === 'versiones' ? '#6366f1' : '#64748b',
+                  marginBottom: '-2px',
+                }}
+              >
+                📂 Por Versión (LATAM, OFF AIR, IBERIA, VOD)
+              </button>
+              <button
+                onClick={() => setCatSubTab('propias')}
+                style={{
+                  padding: '0.45rem 1rem', fontSize: '0.85rem', fontWeight: catSubTab === 'propias' ? 700 : 400,
+                  border: 'none', borderBottom: catSubTab === 'propias' ? '3px solid #f59e0b' : '3px solid transparent',
+                  background: 'none', cursor: 'pointer', color: catSubTab === 'propias' ? '#92400e' : '#64748b',
+                  marginBottom: '-2px',
+                }}
+              >
+                ⚡ Tasas Propias (AMAZON, SONY ONE, COMERCIALES, BP&I, YOUTUBE)
+              </button>
+            </div>
+
+            {/* Sub-tab: Plataformas con categorías propias (logica_sin_version, comerciales, bp_i, youtube) */}
+            {catSubTab === 'propias' && (() => {
+              const propiaPlats = platforms.filter(p =>
+                p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales' ||
+                p.logica === 'logica_bp_i' || p.logica === 'logica_youtube'
+              );
+              if (propiaPlats.length === 0) return (
+                <div className="empty-state"><p>No hay plataformas con tasas propias configuradas.</p></div>
+              );
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {propiaPlats.map(p => {
+                    const cats = p.categorias || [];
+                    return (
+                      <div key={p.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                        <div style={{ background: '#f8fafc', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <strong style={{ fontSize: '0.95rem' }}>{p.name}</strong>
+                            <code style={{ fontSize: '0.75rem', color: '#64748b', background: '#e2e8f0', padding: '1px 6px', borderRadius: '4px' }}>{p.logica}</code>
+                            {p.effortGroup && <span style={{ fontSize: '0.78rem', background: '#f0fdf4', color: '#15803d', border: '1px solid #86efac', borderRadius: '4px', padding: '1px 8px', fontWeight: 600 }}>Grupo: {p.effortGroup}</span>}
+                          </div>
+                          <button
+                            className="btn-icon btn-edit"
+                            title="Editar plataforma y sus tasas"
+                            onClick={() => {
+                              setActiveTab('platforms');
+                              setEditingId(p.id);
+                              setFormData(p);
+                              setShowForm(true);
+                            }}
+                          >✏️ Editar</button>
+                        </div>
+                        {cats.length === 0 ? (
+                          <div style={{ padding: '1rem', color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                            {p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_youtube'
+                              ? 'Esta plataforma usa tasa única (no tiene categorías). Configura la Tasa de Esfuerzo en Editar.'
+                              : 'Sin categorías configuradas. Haz clic en Editar para agregar keys.'}
+                          </div>
+                        ) : (
+                          <table className="library-table" style={{ margin: 0 }}>
+                            <thead>
+                              <tr>
+                                <th>Key</th>
+                                <th>Duración</th>
+                                <th>Tasa Esfuerzo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cats.map((cat, idx) => {
+                                const c = typeof cat === 'string' ? { key: cat, duration: '', effortRate: null } : cat;
+                                return (
+                                <tr key={idx}>
+                                  <td><code style={{ fontSize: '0.85rem' }}>{c.key || <span style={{ color: '#94a3b8' }}>—</span>}</code></td>
+                                  <td>
+                                    {c.duration
+                                      ? <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 8px', fontWeight: 600, fontSize: '0.85rem' }}>{c.duration} min</span>
+                                      : <span style={{ color: '#94a3b8' }}>—</span>}
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    {c.effortRate != null && c.effortRate !== ''
+                                      ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.85rem', fontWeight: 700 }}>{c.effortRate}×</span>
+                                      : <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 600 }}>⚠ Sin tasa</span>}
+                                  </td>
+                                </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                        {/* Tasa única para logicas sin categorías */}
+                        {(p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_youtube') && (
+                          <div style={{ padding: '0.6rem 1rem', borderTop: cats.length > 0 ? '1px solid #e2e8f0' : 'none', fontSize: '0.82rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span>Tasa global:</span>
+                            {p.platformEffortRate != null && p.platformEffortRate !== ''
+                              ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontWeight: 700 }}>{p.platformEffortRate}×</span>
+                              : <span style={{ color: '#f59e0b', fontWeight: 600 }}>⚠ Sin tasa (usa 1×)</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Sub-tab: Categorías por versión (logica_de_versiones / iberia_especial) */}
+            {catSubTab === 'versiones' && (<>
             {(() => {
               const versionPlats = platforms.filter(p => p.logica === 'logica_de_versiones' || p.logica === 'iberia_especial');
               const sinVersionPlats = platforms.filter(p => p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales');
@@ -777,6 +912,7 @@ function LibraryView() {
                       <th>Nombre</th>
                       <th>Plataforma</th>
                       <th>Duración</th>
+                      <th>Tasa Esfuerzo</th>
                       <th>Versiones</th>
                       <th>Color</th>
                       <th>Acciones</th>
@@ -803,6 +939,11 @@ function LibraryView() {
                           {c.duration
                             ? <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>{c.duration} min</span>
                             : <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>—</span>}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {c.effortRate != null && c.effortRate !== ''
+                            ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', fontWeight: 700 }}>{c.effortRate}×</span>
+                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>}
                         </td>
                         <td style={{ fontSize: '0.82rem', color: '#475569' }}>
                           {isVersionless ? (
@@ -848,6 +989,7 @@ function LibraryView() {
                 </table>
               </div>
             )}
+            </>)}
           </div>
         )}
 
@@ -1105,6 +1247,44 @@ function LibraryView() {
                   <option value="logica_youtube">logica_youtube — cuenta CLIPS y SHORTS por editor</option>
                 </select>
 
+                {/* Grupo de Esfuerzo */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
+                    📊 Grupo de Esfuerzo (columna en reporte de horas)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: LATAM, IBERIA, COMERCIALES, BP&I, OTROS"
+                    value={formData.effortGroup || ''}
+                    onChange={(e) => setFormData({ ...formData, effortGroup: e.target.value.toUpperCase() })}
+                    style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.875rem' }}
+                  />
+                  <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                    Agrupa plataformas en una misma columna de horas. Ej: LATAM y BRAZIL → grupo "LATAM".
+                  </small>
+                </div>
+
+                {/* Tasa de Esfuerzo a nivel de plataforma (solo para logicas sin categorías propias) */}
+                {(formData.logica === 'logica_comerciales' || formData.logica === 'logica_bp_i' || formData.logica === 'logica_youtube') && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
+                      ⚡ Tasa de Esfuerzo (multiplicador de horas)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      placeholder="Ej: 1, 1.5, 2"
+                      value={formData.platformEffortRate ?? ''}
+                      onChange={(e) => setFormData({ ...formData, platformEffortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
+                      style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.875rem', width: '120px' }}
+                    />
+                    <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                      Multiplica las horas calculadas. Ej: 1.5 = cada hora real cuenta como 1.5h de esfuerzo.
+                    </small>
+                  </div>
+                )}
+
                 {/* Campos extra solo para logica_sin_version */}
                 {formData.logica === 'logica_sin_version' && (
                   <>
@@ -1114,7 +1294,10 @@ function LibraryView() {
                     
                     {/* Lista de categorías dinámicas */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '0.75rem 0', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                      {(formData.categorias || []).map((cat, idx) => (
+                      {(formData.categorias || []).map((cat, idx) => {
+                        // Normalizar formato antiguo (string) a objeto al renderizar
+                        const catObj = typeof cat === 'string' ? { key: cat, duration: '', effortRate: null } : cat;
+                        return (
                         <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '3px' }}>
                             <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
@@ -1123,16 +1306,16 @@ function LibraryView() {
                             <input
                               type="text"
                               placeholder={idx === 0 ? "Ej: serie_45min" : idx === 1 ? "Ej: pelicula_120min" : "Ej: especial_90min"}
-                              value={cat?.key || ''}
+                              value={catObj.key || ''}
                               onChange={(e) => {
                                 const cats = [...(formData.categorias || [])];
-                                cats[idx] = { ...cat, key: e.target.value };
+                                cats[idx] = { ...catObj, key: e.target.value };
                                 setFormData({ ...formData, categorias: cats });
                               }}
                               style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
                             />
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '100px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '90px' }}>
                             <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
                               ⏱ Duración (min)
                             </label>
@@ -1140,13 +1323,31 @@ function LibraryView() {
                               type="number"
                               min="0"
                               placeholder="Ej: 45"
-                              value={cat?.duration || ''}
+                              value={catObj.duration || ''}
                               onChange={(e) => {
                                 const cats = [...(formData.categorias || [])];
-                                cats[idx] = { ...cat, duration: e.target.value ? parseInt(e.target.value) : '' };
+                                cats[idx] = { ...catObj, duration: e.target.value ? parseInt(e.target.value) : '' };
                                 setFormData({ ...formData, categorias: cats });
                               }}
                               style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '80px' }}>
+                            <label style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 500 }}>
+                              ⚡ Tasa
+                            </label>
+                            <input
+                              type="number"
+                              step="0.25"
+                              min="0"
+                              placeholder="Ej: 1.5"
+                              value={catObj.effortRate ?? ''}
+                              onChange={(e) => {
+                                const cats = [...(formData.categorias || [])];
+                                cats[idx] = { ...catObj, effortRate: e.target.value !== '' ? parseFloat(e.target.value) : null };
+                                setFormData({ ...formData, categorias: cats });
+                              }}
+                              style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #fde68a', fontSize: '0.85rem', background: '#fefce8' }}
                             />
                           </div>
                           <button
@@ -1163,7 +1364,8 @@ function LibraryView() {
                             🗑️ Eliminar
                           </button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {/* Botón agregar categoría */}
@@ -1229,6 +1431,24 @@ function LibraryView() {
                   value={formData.color || '#667eea'}
                   onChange={(e) => setFormData({ ...formData, color: e.target.value })}
                 />
+                {/* Tasa de Esfuerzo */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
+                    ⚡ Tasa de Esfuerzo (horas por asset)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    placeholder="Ej: 1.5, 0.75, 3"
+                    value={formData.effortRate ?? ''}
+                    onChange={(e) => setFormData({ ...formData, effortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
+                    style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', width: '140px' }}
+                  />
+                  <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                    Multiplica el conteo de assets de esta categoría para calcular horas de esfuerzo del editor.
+                  </small>
+                </div>
               </>
             )}
 

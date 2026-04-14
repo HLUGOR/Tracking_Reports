@@ -189,14 +189,16 @@ class VersionMatcher {
       // SERIE
       return {
         category_key: serieCategory?.key || 'serie',
-        duration_minutes: serieCategory?.duration || 45,
+        duration_minutes: serieCategory?.duration || 60,
         registered: true,
         subPlatform: null
       };
     } else {
-      // Formato antiguo: configuración con duracion_serie_minutos, duracion_pelicula_minutos
-      const duracionSerie = platformConfig?.duracion_serie_minutos || 45;
+      // Formato antiguo: array de strings directos (migración)
+      const duracionSerie = platformConfig?.duracion_serie_minutos || 60;
       const duracionPelicula = platformConfig?.duracion_pelicula_minutos || 120;
+      
+      // cats[0] es string como "serie (60 min)" o "pelicula (120 min)" - usarlo como key directo
       const categorySerie = cats[0] || 'serie';
       const categoryPelicula = cats[1] || 'pelicula';
 
