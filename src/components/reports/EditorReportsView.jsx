@@ -538,11 +538,16 @@ function EditorReportsView() {
                     labels: editors.map(e => e.editor),
                     datasets: [
                       {
-                        label: '% Ocupación',
-                        data: editors.map(e => e.pctOcupacion),
-                        backgroundColor: editors.map(e =>
-                          e.pctOcupacion >= 70 ? '#ef4444' : '#6366f1'
-                        ),
+                        label: '% Ocupación Óptima',
+                        data: editors.map(e => Math.min(e.pctOcupacion, 70)),
+                        backgroundColor: '#6366f1',
+                        borderRadius: 4,
+                        borderSkipped: false,
+                      },
+                      {
+                        label: '% Sobrecargado',
+                        data: editors.map(e => e.pctOcupacion > 70 ? e.pctOcupacion - 70 : 0),
+                        backgroundColor: '#ef4444',
                         borderRadius: 4,
                         borderSkipped: false,
                       },
