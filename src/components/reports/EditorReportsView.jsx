@@ -447,35 +447,66 @@ function EditorReportsView() {
                               {ed.pctFreeTime}%
                             </span>
                           </td>
-                          <td style={{ padding: '0.55rem 0.85rem', textAlign: 'center' }}>
-                            <div style={{ position: 'relative', width: '80px', height: '20px', background: '#e2e8f0', borderRadius: '10px', margin: '0 auto', overflow: 'hidden', border: '1px solid #cbd5e1' }}>
-                              <div style={{
-                                position: 'absolute',
-                                left: 0,
-                                top: 0,
-                                height: '100%',
-                                width: `${Math.min(ed.pctOcupacion, 100)}%`,
-                                background: ed.pctOcupacion >= 70 
-                                  ? 'linear-gradient(90deg, #ef4444, #dc2626)' 
-                                  : 'linear-gradient(90deg, #22c55e, #16a34a)',
-                                borderRadius: '9px',
-                                transition: 'all 0.4s ease',
-                                boxShadow: ed.pctOcupacion >= 70 ? 'inset 0 1px 2px rgba(0,0,0,0.1)' : 'inset 0 1px 2px rgba(0,0,0,0.05)'
-                              }}></div>
+                          <td style={{ padding: '0.55rem 0.85rem', textAlign: 'center', minWidth: '140px' }}>
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '8px',
+                              justifyContent: 'center'
+                            }}>
+                              {/* Barra bicolor: verde hasta 70%, rojo a partir de 70% */}
                               <div style={{ 
-                                position: 'absolute', 
-                                top: '50%', 
-                                left: '50%', 
-                                transform: 'translate(-50%, -50%)', 
-                                fontSize: '0.7rem', 
+                                width: '100px', 
+                                height: '14px', 
+                                background: '#e2e8f0', 
+                                borderRadius: '7px', 
+                                overflow: 'hidden',
+                                flexShrink: 0,
+                                position: 'relative'
+                              }}>
+                                {/* Parte verde (hasta 70% o hasta el valor si es menor) */}
+                                <div style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  top: 0,
+                                  height: '100%',
+                                  width: `${Math.min(ed.pctOcupacion, 70)}%`,
+                                  backgroundColor: '#10b981',
+                                  borderRadius: ed.pctOcupacion <= 70 ? '7px' : '7px 0 0 7px'
+                                }}></div>
+                                {/* Parte roja (solo si supera 70%) */}
+                                {ed.pctOcupacion > 70 && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    left: '70%',
+                                    top: 0,
+                                    height: '100%',
+                                    width: `${ed.pctOcupacion - 70}%`,
+                                    backgroundColor: '#ef4444',
+                                    borderRadius: '0 7px 7px 0'
+                                  }}></div>
+                                )}
+                                {/* Línea marcadora del 70% */}
+                                <div style={{
+                                  position: 'absolute',
+                                  left: '70%',
+                                  top: 0,
+                                  width: '1px',
+                                  height: '100%',
+                                  backgroundColor: '#94a3b8',
+                                  zIndex: 1
+                                }}></div>
+                              </div>
+                              {/* Texto del porcentaje */}
+                              <span style={{ 
+                                fontSize: '0.75rem', 
                                 fontWeight: 700, 
-                                color: ed.pctOcupacion > 15 ? '#fff' : '#64748b',
-                                textShadow: ed.pctOcupacion > 15 ? '0 1px 2px rgba(0,0,0,0.5)' : 'none',
-                                zIndex: 1,
-                                pointerEvents: 'none'
+                                color: ed.pctOcupacion >= 70 ? '#dc2626' : '#059669',
+                                minWidth: '30px',
+                                textAlign: 'left'
                               }}>
                                 {ed.pctOcupacion}%
-                              </div>
+                              </span>
                             </div>
                           </td>
                         </tr>
