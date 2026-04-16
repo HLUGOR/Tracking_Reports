@@ -652,7 +652,17 @@ function LibraryView() {
                         <td style={{ textAlign: 'center' }}>
                           {p.platformEffortRate != null && p.platformEffortRate !== ''
                             ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', fontWeight: 700 }}>{p.platformEffortRate}×</span>
-                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>}
+                            : (() => {
+                                const catRates = categories
+                                  .filter((c) => c.platformId === p.id)
+                                  .map((c) => c.effortRate)
+                                  .filter((r) => r != null && r !== '')
+                                  .filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
+                                return catRates.length > 0
+                                  ? <span style={{ fontSize: '0.75rem', color: '#475569' }}>{catRates.map((r) => `${r}×`).join(', ')}</span>
+                                  : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>;
+                              })()
+                          }
                         </td>
                         <td>
                           <span className={`status ${p.active ? 'active' : 'inactive'}`}>
