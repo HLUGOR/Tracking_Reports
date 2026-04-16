@@ -547,7 +547,7 @@ function EditorReportsView() {
                       {
                         label: '% Sobrecargado',
                         data: editors.map(e => e.pctOcupacion > 70 ? e.pctOcupacion - 70 : 0),
-                        backgroundColor: '#ef4444',
+                        backgroundColor: '#f97316',
                         borderRadius: 4,
                         borderSkipped: false,
                       },
@@ -588,7 +588,7 @@ function EditorReportsView() {
                             <span style={{ color: '#475569' }}>Óptimo ({"<"} 70%)</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <div style={{ width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '2px' }}></div>
+                            <div style={{ width: '12px', height: '12px', backgroundColor: '#f97316', borderRadius: '2px' }}></div>
                             <span style={{ color: '#475569' }}>Sobrecargado (≥ 70%)</span>
                           </div>
                         </div>
