@@ -282,48 +282,6 @@ function LibraryView() {
     }
   };
 
-  // Auto-asignar versiones a categorías por duración detectada del nombre (fuente de verdad)
-  const handleAutoAssignVersions = () => {
-    const state = libraryStore.getState();
-    if (state.categories.length === 0) { alert('Crea categorías primero.'); return; }
-
-    // 1. Reparar IDs duplicados primero
-    state.repairVersionIds();
-
-    // 2. Leer el estado fresco con IDs ya reparados
-    const freshState = libraryStore.getState();
-    const allCategories = [...freshState.categories];
-
-    let assigned = 0;
-    let skipped = 0;
-    const durations = {};
-
-    // 3. Construir nuevo array con categoryId y duration correctos para cada versión
-    const updatedVersions = freshState.versions.map((v) => {
-      // Usar duración almacenada si existe; si no, detectar por sufijo (LATAM/BRA)
-      const storedDuration = Number(v.duration) > 0 ? Number(v.duration) : null;
-      const trueDuration = storedDuration ?? VersionMatcher.detectDurationFromSuffix(v.name);
-      durations[trueDuration] = (durations[trueDuration] || 0) + 1;
-
-      // Solo buscar dentro de la misma plataforma (sin fallback cross-platform)
-      const match = allCategories.find(
-        (c) => Number(c.duration) === trueDuration && c.platformId === v.platformId
-      );
-
-      if (match) {
-        assigned++;
-        return { ...v, categoryId: match.id, duration: trueDuration };
-      }
-      skipped++;
-      return v;
-    });
-
-    // 4. Guardar todo de una sola vez (sin colisiones de updateVersion)
-    freshState.setVersions(updatedVersions);
-
-    alert(`✅ ${assigned} versiones asignadas/corregidas.\n⏭ ${skipped} sin categoría coincidente.\n\nDistribución:\n${Object.entries(durations).map(([d,n])=>`${d}min: ${n}`).join('\n')}`);
-  };
-
   // ===== VERSIONES =====
   const handleAddVersion = () => {
     setEditingId(null);
@@ -628,7 +586,6 @@ function LibraryView() {
                       <th>Nombre</th>
                       <th>Lógica</th>
                       <th>Grupo Esfuerzo</th>
-                      <th>Tasa Esfuerzo</th>
                       <th>Estado</th>
                       <th>Config</th>
                       <th>Acciones</th>
@@ -648,21 +605,6 @@ function LibraryView() {
                           {p.effortGroup
                             ? <span style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #86efac', borderRadius: '4px', padding: '2px 8px', fontSize: '0.78rem', fontWeight: 600 }}>{p.effortGroup}</span>
                             : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {p.platformEffortRate != null && p.platformEffortRate !== ''
-                            ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', fontWeight: 700 }}>{p.platformEffortRate}×</span>
-                            : (() => {
-                                const catRates = categories
-                                  .filter((c) => c.platformId === p.id)
-                                  .map((c) => c.effortRate)
-                                  .filter((r) => r != null && r !== '')
-                                  .filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
-                                return catRates.length > 0
-                                  ? <span style={{ fontSize: '0.75rem', color: '#475569' }}>{catRates.map((r) => `${r}×`).join(', ')}</span>
-                                  : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>;
-                              })()
-                          }
                         </td>
                         <td>
                           <span className={`status ${p.active ? 'active' : 'inactive'}`}>
@@ -882,10 +824,6 @@ function LibraryView() {
                 )}
               </h3>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {/* 🔧 Reparar IBERIA — botón oculto. Usar window.__repairIberia() desde consola si es necesario */}
-                <button className="btn btn-secondary" onClick={handleAutoAssignVersions}>
-                  🔗 Auto-asignar versiones
-                </button>
                 <button className="btn btn-primary" onClick={() => {
                   setEditingId(null);
                   setFormData({ platformId: filterCatPlatformId || platforms[0]?.id || null });
