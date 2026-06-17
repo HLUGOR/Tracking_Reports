@@ -3,11 +3,12 @@ import './App.css';
 import ExcelUpload from './components/dataImport/ExcelUpload';
 import EditorReportsView from './components/reports/EditorReportsView';
 import PlatformReportsView from './components/reports/PlatformReportsView';
+import SerieReportsView from './components/reports/SerieReportsView';
 import LibraryView from './components/dataImport/LibraryView';
 import excelStore from './store/excelStore';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'platform-reports' | 'reports' | 'library'
+  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'platform-reports' | 'serie-reports' | 'reports' | 'library'
   const excelRows = excelStore((state) => state.excelRows);
 
   return (
@@ -39,6 +40,13 @@ function App() {
               🌐 Reporte Plataformas
             </button>
             <button
+              className={`menu-item ${activeTab === 'serie-reports' ? 'active' : ''}`}
+              onClick={() => setActiveTab('serie-reports')}
+              disabled={excelRows.length === 0}
+            >
+              📺 Reporte Series
+            </button>
+            <button
               className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
               disabled={excelRows.length === 0}
@@ -59,6 +67,12 @@ function App() {
           {activeTab === 'upload' && <ExcelUpload onSuccess={() => setActiveTab('platform-reports')} />}
           {activeTab === 'platform-reports' && excelRows.length > 0 && <PlatformReportsView />}
           {activeTab === 'platform-reports' && excelRows.length === 0 && (
+            <div className="empty-state">
+              <p>⬆️ Carga un archivo Excel primero</p>
+            </div>
+          )}
+          {activeTab === 'serie-reports' && excelRows.length > 0 && <SerieReportsView />}
+          {activeTab === 'serie-reports' && excelRows.length === 0 && (
             <div className="empty-state">
               <p>⬆️ Carga un archivo Excel primero</p>
             </div>
