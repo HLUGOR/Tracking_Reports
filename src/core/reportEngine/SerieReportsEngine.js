@@ -39,7 +39,7 @@ class SerieReportsEngine {
     const result = Object.values(serieMap)
       .map((s) => ({
         serie:         s.serie,
-        hn:            [...s.hns].join(', '),
+        hns:           [...s.hns],
         hnCount:       s.hns.size,
         totalDuration: parseFloat(s.totalDuration.toFixed(2)),
         count:         s.count,
