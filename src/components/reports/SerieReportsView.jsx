@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ExcelJS from 'exceljs';
 import excelStore from '../../store/excelStore';
+import libraryStore from '../../store/libraryStore';
 import SerieReportsEngine from '../../core/reportEngine/SerieReportsEngine';
 import './SerieReportsView.css';
 
@@ -9,7 +10,9 @@ function toHours(minutes) {
 }
 
 function SerieReportsView() {
-  const rows = excelStore((s) => s.excelRows);
+  const rows     = excelStore((s) => s.excelRows);
+  const versions    = libraryStore((s) => s.versions);
+  const categories  = libraryStore((s) => s.categories);
 
   const today    = new Date().toISOString().split('T')[0];
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
@@ -47,7 +50,8 @@ function SerieReportsView() {
         rows,
         dateField !== 'all' ? startDate : null,
         dateField !== 'all' ? endDate   : null,
-        dateField
+        dateField,
+        { versions, categories }
       );
       setReportData(result);
     } catch (err) {
