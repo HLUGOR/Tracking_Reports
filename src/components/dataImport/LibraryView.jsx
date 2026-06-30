@@ -1224,6 +1224,37 @@ function LibraryView() {
                   </div>
                 )}
 
+                {/* Configuración para Reporte por Serie (logica_series, independiente de logica_comerciales) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
+                    📺 Reporte por Serie
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.seriesLogica === 'logica_series'}
+                      onChange={(e) => setFormData({ ...formData, seriesLogica: e.target.checked ? 'logica_series' : null })}
+                    />
+                    Incluir en Reporte Series (logica_series)
+                  </label>
+                  {formData.seriesLogica === 'logica_series' && (
+                    <>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        placeholder="Tasa de esfuerzo (ej: 1, 1.5)"
+                        value={formData.seriesEffortRate ?? ''}
+                        onChange={(e) => setFormData({ ...formData, seriesEffortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
+                        style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.875rem', width: '180px' }}
+                      />
+                      <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                        Multiplica las horas de duración para calcular "Horas de Esfuerzo" en el Reporte por Serie. No afecta logica_comerciales ni otros reportes.
+                      </small>
+                    </>
+                  )}
+                </div>
+
                 {/* Campos extra solo para logica_sin_version */}
                 {formData.logica === 'logica_sin_version' && (
                   <>

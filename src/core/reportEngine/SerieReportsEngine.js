@@ -1,23 +1,38 @@
 class SerieReportsEngine {
   /**
-   * Agrupa filas por SERIE y suma DURATION (valor numérico variable).
+   * Agrupa filas por SERIE y calcula horas de esfuerzo usando logica_series de la librería.
    * @param {Array}  rows      - Filas del Excel (excelRows del store)
    * @param {string} startDate - 'YYYY-MM-DD' | null
    * @param {string} endDate   - 'YYYY-MM-DD' | null
    * @param {string} dateField - 'approved_date' | 'air_date' | 'all'
-   * @returns {Object} { series, grandTotal, grandCount, totalSeries, generatedAt }
+   * @param {Object} library   - { versions, categories, platforms } de libraryStore
+   * @returns {Object} { series, grandTotal, grandEffortHours, grandCount, totalSeries, generatedAt }
    */
   static buildReport(rows, startDate = null, endDate = null, dateField = 'all', library = {}) {
     const start = startDate ? new Date(startDate) : null;
     const end   = endDate   ? new Date(endDate + 'T23:59:59') : null;
 
-    // Mapa version → duración en minutos desde la librería (fallback cuando DURATION está vacío)
-    const { versions = [], categories = [] } = library;
+    const { versions = [], categories = [], platforms = [] } = library;
+
+    // Mapa version → duración en minutos desde la librería
     const versionDurationMap = {};
     versions.forEach((v) => {
       if (!v.name) return;
       const cat = categories.find((c) => String(c.id) === String(v.categoryId));
       if (cat) versionDurationMap[v.name.trim().toUpperCase()] = Number(cat.duration) || 0;
+    });
+
+    // Mapa plataforma → seriesConfig { effortRate, enabled }
+    // Si una plataforma tiene seriesLogica: 'logica_series' → usa seriesEffortRate
+    // Si no tiene seriesLogica → sigue apareciendo en el reporte con effortRate = 1
+    const platformSeriesConfig = {};
+    platforms.forEach((p) => {
+      const name = (p.name || '').trim().toUpperCase();
+      platformSeriesConfig[name] = {
+        effortRate: p.seriesLogica === 'logica_series'
+          ? (parseFloat(p.seriesEffortRate) || 1)
+          : 1,
+      };
     });
 
     const serieMap = {};
@@ -30,11 +45,12 @@ class SerieReportsEngine {
         if (!rowDate || rowDate < start || rowDate > end) return;
       }
 
-      const serie       = this.getCol(row, 'SERIE');
-      const hn          = this.getCol(row, 'HN');
-      const durationRaw = this.getCol(row, 'DURATION');
+      const serie   = this.getCol(row, 'SERIE');
+      const hn      = this.getCol(row, 'HN');
+      const version = this.getCol(row, 'VERSION');
 
-      // Timecode HH:MM:SS[:FF] → minutos; número plano → minutos directo
+      // Parsear duración: timecode HH:MM:SS[:FF] → minutos; número plano → minutos directo
+      const durationRaw = this.getCol(row, 'DURATION');
       let duration = 0;
       if (durationRaw.includes(':')) {
         duration = SerieReportsEngine.parseTimecode(durationRaw) / 60;
@@ -43,43 +59,53 @@ class SerieReportsEngine {
       }
 
       // Fallback: buscar duración en librería por VERSION cuando el Excel no trae DURATION
-      if (duration === 0) {
-        const version = this.getCol(row, 'VERSION');
-        if (version) duration = versionDurationMap[version.toUpperCase()] || 0;
+      if (duration === 0 && version) {
+        duration = versionDurationMap[version.toUpperCase()] || 0;
       }
 
       if (!serie) return;
 
+      // Tasa de esfuerzo configurada en la librería para esta plataforma
+      const platform = this.getCol(row, 'PLATFORM').toUpperCase();
+      const effortRate = platformSeriesConfig[platform]?.effortRate ?? 1;
+      const effortHours = (duration / 60) * effortRate;
+
       if (!serieMap[serie]) {
-        serieMap[serie] = { serie, hns: new Set(), totalDuration: 0, count: 0 };
+        serieMap[serie] = { serie, hns: new Set(), totalDuration: 0, totalEffortHours: 0, count: 0 };
       }
 
       if (hn) serieMap[serie].hns.add(hn);
-      serieMap[serie].totalDuration += duration;
+      serieMap[serie].totalDuration  += duration;
+      serieMap[serie].totalEffortHours += effortHours;
       serieMap[serie].count++;
     });
 
     const result = Object.values(serieMap)
       .map((s) => ({
-        serie:         s.serie,
-        hns:           [...s.hns],
-        hnCount:       s.hns.size,
-        totalDuration: parseFloat(s.totalDuration.toFixed(2)),
-        count:         s.count,
+        serie:            s.serie,
+        hns:              [...s.hns],
+        hnCount:          s.hns.size,
+        totalDuration:    parseFloat(s.totalDuration.toFixed(2)),
+        totalEffortHours: parseFloat(s.totalEffortHours.toFixed(2)),
+        count:            s.count,
       }))
       .sort((a, b) => a.serie.localeCompare(b.serie));
 
     const grandTotal = parseFloat(
       result.reduce((sum, r) => sum + r.totalDuration, 0).toFixed(2)
     );
+    const grandEffortHours = parseFloat(
+      result.reduce((sum, r) => sum + r.totalEffortHours, 0).toFixed(2)
+    );
     const grandCount = result.reduce((sum, r) => sum + r.count, 0);
 
     return {
-      series:      result,
+      series:          result,
       grandTotal,
+      grandEffortHours,
       grandCount,
-      totalSeries: result.length,
-      generatedAt: new Date().toISOString(),
+      totalSeries:     result.length,
+      generatedAt:     new Date().toISOString(),
     };
   }
 

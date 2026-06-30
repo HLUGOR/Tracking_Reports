@@ -5,14 +5,11 @@ import libraryStore from '../../store/libraryStore';
 import SerieReportsEngine from '../../core/reportEngine/SerieReportsEngine';
 import './SerieReportsView.css';
 
-function toHours(minutes) {
-  return parseFloat((minutes / 60).toFixed(2));
-}
-
 function SerieReportsView() {
-  const rows     = excelStore((s) => s.excelRows);
-  const versions    = libraryStore((s) => s.versions);
-  const categories  = libraryStore((s) => s.categories);
+  const rows       = excelStore((s) => s.excelRows);
+  const versions   = libraryStore((s) => s.versions);
+  const categories = libraryStore((s) => s.categories);
+  const platforms  = libraryStore((s) => s.platforms);
 
   const today    = new Date().toISOString().split('T')[0];
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
@@ -51,7 +48,7 @@ function SerieReportsView() {
         dateField !== 'all' ? startDate : null,
         dateField !== 'all' ? endDate   : null,
         dateField,
-        { versions, categories }
+        { versions, categories, platforms }
       );
       setReportData(result);
     } catch (err) {
@@ -117,11 +114,11 @@ function SerieReportsView() {
     ws.addRow([]);
 
     // Header con auto-filtro
-    const hdrRow = ws.addRow(['Serie', 'HN', 'Horas Totales']);
+    const hdrRow = ws.addRow(['Serie', 'HN', 'Horas de Esfuerzo']);
     hdrRow.height = 20;
     ['A', 'B', 'C'].forEach((col, i) => {
       const cell     = hdrRow.getCell(col);
-      cell.value     = ['Serie', 'HN', 'Horas Totales'][i];
+      cell.value     = ['Serie', 'HN', 'Horas de Esfuerzo'][i];
       cell.font      = fontWhite;
       cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLOR.header } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -135,7 +132,7 @@ function SerieReportsView() {
       const fillHex = isAlt ? 'FFF8FAFC' : 'FFFFFFFF';
 
       // Fila principal (serie)
-      const serieRow = ws.addRow([row.serie, `${row.hnCount} HN(s)`, toHours(row.totalDuration)]);
+      const serieRow = ws.addRow([row.serie, `${row.hnCount} HN(s)`, row.totalEffortHours]);
       serieRow.height = 18;
 
       const cA = serieRow.getCell('A');
@@ -149,7 +146,7 @@ function SerieReportsView() {
       cB.alignment = { horizontal: 'left', vertical: 'middle' }; cB.border = border;
 
       const cC = serieRow.getCell('C');
-      cC.value = toHours(row.totalDuration); cC.font = { ...fontDark, bold: true };
+      cC.value = row.totalEffortHours; cC.font = { ...fontDark, bold: true };
       cC.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillHex } };
       cC.alignment = { horizontal: 'center', vertical: 'middle' };
       cC.numFmt = '0.##'; cC.border = border;
@@ -177,7 +174,7 @@ function SerieReportsView() {
     });
 
     // Grand Total
-    const totRow = ws.addRow(['Grand Total', '', toHours(reportData.grandTotal)]);
+    const totRow = ws.addRow(['Grand Total', '', reportData.grandEffortHours]);
     totRow.height = 18;
     ['A', 'B', 'C'].forEach((col) => {
       const cell     = totRow.getCell(col);
@@ -248,7 +245,7 @@ function SerieReportsView() {
             <span>🗓 Período: {dateField === 'all' ? 'Todos los registros' : `${startDate} → ${endDate}`}</span>
             <span>📺 Series únicas: <strong>{reportData.totalSeries}</strong></span>
             <span>📦 Total assets: <strong>{reportData.grandCount}</strong></span>
-            <span>⏱ Total horas: <strong>{toHours(reportData.grandTotal)}h</strong></span>
+            <span>⏱ Horas de Esfuerzo: <strong>{reportData.grandEffortHours}h</strong></span>
           </div>
 
           <div className="sr-expand-controls">
@@ -262,7 +259,7 @@ function SerieReportsView() {
                 <tr>
                   <th className="sr-th-serie">Serie</th>
                   <th className="sr-th-hn">HN</th>
-                  <th className="sr-th-dur">Horas Totales</th>
+                  <th className="sr-th-dur">Horas de Esfuerzo</th>
                 </tr>
               </thead>
               <tbody>
@@ -284,7 +281,7 @@ function SerieReportsView() {
                             {row.hnCount} HN{row.hnCount !== 1 ? 's' : ''}
                           </span>
                         </td>
-                        <td className="sr-td-dur">{toHours(row.totalDuration)}h</td>
+                        <td className="sr-td-dur">{row.totalEffortHours}h</td>
                       </tr>
 
                       {isExpanded && row.hns.map((hn) => (
@@ -301,7 +298,7 @@ function SerieReportsView() {
               <tfoot>
                 <tr className="sr-total-row">
                   <td colSpan={2}><strong>Grand Total</strong></td>
-                  <td><strong>{toHours(reportData.grandTotal)}h</strong></td>
+                  <td><strong>{reportData.grandEffortHours}h</strong></td>
                 </tr>
               </tfoot>
             </table>
