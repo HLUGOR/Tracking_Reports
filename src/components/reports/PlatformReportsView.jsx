@@ -8,29 +8,12 @@ import ExcelJS from 'exceljs';
 import excelStore from '../../store/excelStore';
 import libraryStore from '../../store/libraryStore';
 import PlatformReportsEngine from '../../core/reportEngine/PlatformReportsEngine';
+import { buildCategoryLabel } from '../../core/utils/categoryLabel';
 import './PlatformReportsView.css';
 
 // Formatea minutos a entero
 function formatMinutes(mins) {
   return Math.round(mins).toString();
-}
-
-/**
- * Construye el label de categoría para encabezados.
- * Si el nombre ya incluye la duración (ej: "serie_30min", "Serie 60min", "30", "120") la deja así.
- * Si no, agrega " (Xmin)" al final para que cada columna sea inequívoca.
- */
-function buildCategoryLabel(cat) {
-  // Nombre base: eliminar sufijos de duración sueltos como "60", "120", "45min", "(60 min)", etc.
-  const rawName = (cat.label || cat.name || cat.category_key || '').trim();
-  const cleanName = rawName
-    .replace(/\s*\(\d+\s*min\)/gi, '')   // quita "(60 min)" o "(60min)"
-    .replace(/\s+\d+\s*min\b/gi, '')      // quita " 45min" o " 120 min"
-    .replace(/\s+\d+\s*$/, '')            // quita número suelto al final " 60"
-    .trim();
-  const dur = Number(cat.duration_minutes || cat.duration || 0);
-  if (dur <= 0) return cleanName || rawName;
-  return `${cleanName || rawName} (${dur} min)`;
 }
 
 // Formatea segundos totales a H:MM:SS (para COMERCIALES)
@@ -527,7 +510,8 @@ function PlatformReportsView() {
     };
 
     addAuditSection('🚫 Plataformas no registradas (descartadas):', reportData.audit.unregisteredPlatforms, '✅ Todas registradas');
-    addAuditSection('⚠️ Versiones no registradas (fallback aplicado):', reportData.audit.unregisteredVersions, '✅ Todas registradas');
+    addAuditSection('⚠️ Versiones no registradas — CONTADAS con duración estimada:', reportData.audit.unregisteredVersionsFallback, '✅ Todas registradas');
+    addAuditSection('🔴 Versiones no registradas — EXCLUIDAS del reporte (0 minutos, sin fallback posible):', reportData.audit.unregisteredVersionsDiscarded, '✅ Todas registradas');
     const discRow = wsAudit.addRow(['Filas descartadas (total):', reportData.audit.discardedCount]);
     discRow.getCell(1).font = fontBold;
     discRow.getCell(2).font = { ...fontBold, color: { argb: 'FFB91C1C' } };
@@ -854,16 +838,36 @@ function PlatformReportsView() {
                 )}
               </div>
 
-              {/* Versiones no registradas */}
+              {/* Versiones no registradas — contadas con estimación */}
               <div className="pr-audit-block">
                 <h4>
-                  ⚠️ Versiones no registradas ({reportData.audit.unregisteredVersions.length})
+                  ⚠️ No registradas — contadas con duración estimada ({reportData.audit.unregisteredVersionsFallback.length})
                 </h4>
-                {reportData.audit.unregisteredVersions.length === 0 ? (
+                <p className="pr-audit-info">Sí suman minutos al editor (duración adivinada por el nombre).</p>
+                {reportData.audit.unregisteredVersionsFallback.length === 0 ? (
                   <p className="pr-audit-ok">✅ Todas las versiones se encontraron en la librería</p>
                 ) : (
                   <ul>
-                    {reportData.audit.unregisteredVersions.map((v) => (
+                    {reportData.audit.unregisteredVersionsFallback.map((v) => (
+                      <li key={v}>{v}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Versiones no registradas — excluidas sin fallback */}
+              <div className="pr-audit-block">
+                <h4 style={{ color: '#b91c1c' }}>
+                  🔴 No registradas — EXCLUIDAS del reporte ({reportData.audit.unregisteredVersionsDiscarded.length})
+                </h4>
+                <p className="pr-audit-info">
+                  <strong>No suman ningún minuto</strong> — la fila se descartó por completo (ej. IBERIA sin código conocido).
+                </p>
+                {reportData.audit.unregisteredVersionsDiscarded.length === 0 ? (
+                  <p className="pr-audit-ok">✅ Ninguna versión excluida</p>
+                ) : (
+                  <ul>
+                    {reportData.audit.unregisteredVersionsDiscarded.map((v) => (
                       <li key={v}>{v}</li>
                     ))}
                   </ul>

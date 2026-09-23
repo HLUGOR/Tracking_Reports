@@ -7,45 +7,22 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import '../../styles/LibraryView.css';
 import libraryStore from '../../store/libraryStore';
-import VersionMatcher from '../../core/reportEngine/VersionMatcher';
-
-/**
- * Auto-detecta la duración en minutos leyendo el sufijo numérico del nombre de versión.
- * Replica la lógica de fallback de logicas.json (logica_de_versiones):
- *   1-4   → 30 min  (series cortas)
- *   5-6   → 60 min  (series largas)
- *   9-10  → 120 min (películas)
- *   otros → 30 min  (default)
- */
-function detectDurationFromName(name) {
-  if (!name) return 30;
-  const match = String(name).match(/\s(\d+)(?:\s+\S+)?$/);
-  if (!match) return 30;
-  const n = parseInt(match[1], 10);
-  if (n >= 1 && n <= 4) return 30;
-  if (n >= 5 && n <= 6) return 60;
-  if (n >= 9 && n <= 10) return 120;
-  return 30;
-}
-
-/**
- * Detecta sub-plataforma LAT/BRA desde el nombre de versión.
- * Replica detectPlatformFromVersion() de server.cjs.
- * Ej: LAT_ORI_SQZ_HD 3 → 'LATAM'  |  BRA_SAP_CC_SQZ_HD 5 → 'BRAZIL'
- */
-function detectSubPlatformFromName(name) {
-  if (!name) return null;
-  const upper = String(name).trim().toUpperCase();
-  if (/\bLAT(AM)?\b|_LAT_|_LAT\b|\bLAT_/.test(upper)) return 'LATAM';
-  if (/\bBRA(SIL)?\b|_BRA_|_BRA\b|\bBRA_/.test(upper)) return 'BRAZIL';
-  return null;
-}
+import {
+  detectDurationFromSuffix as detectDurationFromName,
+  checkVersionSuffix,
+  detectSubPlatform as detectSubPlatformFromName,
+} from '../../core/reportEngine/versionRules';
+import { buildCategoryLabel } from '../../core/utils/categoryLabel';
+import PlatformWizard from './PlatformWizard';
 
 function LibraryView() {
   const [activeTab, setActiveTab] = useState('platforms'); // platforms, categories, versions
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({});
+
+  // Asistente de alta de plataforma nueva (ver PlatformWizard.jsx)
+  const [showWizard, setShowWizard] = useState(false);
 
   // Modal de reasignación de versiones al crear plataforma nueva con logica_de_versiones
   const [reassignModal, setReassignModal] = useState(null);
@@ -76,10 +53,10 @@ function LibraryView() {
   const columnMappings = libraryStore((state) => state.columnMappings);
 
   // ===== PLATAFORMAS =====
+  // Alta nueva usa el asistente (PlatformWizard); no escribe nada hasta el paso final.
+  // Editar una plataforma existente sigue usando el modal de un solo paso (handleSavePlatform).
   const handleAddPlatform = () => {
-    setEditingId(null);
-    setFormData({});
-    setShowForm(true);
+    setShowWizard(true);
   };
 
   const handleSavePlatform = () => {
@@ -174,63 +151,10 @@ function LibraryView() {
     }
   };
 
-  // ── PARCHE DE DATOS IBERIA ────────────────────────────────────────────────
-  // NOTA DE MANTENIMIENTO: Esta función corrige versiones/categorías de IBERIA que
-  // quedaron con duration:30 por una importación incorrecta (abril 2026).
-  // La lógica de reporte ya NO depende del store para IBERIA (usa VersionMatcher.IBERIA_DURATION_MAP).
-  // Si en el futuro las versiones de IBERIA vuelven a mostrarse con datos incorrectos
-  // en la tab Versiones (N/A, 30min), ejecutar esta función desde la consola:
-  //   window.__repairIberia && window.__repairIberia()
-  // o reactivar el botón temporalmente (ver LibraryView línea ~185).
-  const handleRepairIberia = () => {
-    const state = libraryStore.getState();
-    const iberiaPlatform = state.platforms.find(p => (p.name || '').toUpperCase() === 'IBERIA');
-    if (!iberiaPlatform) { alert('Plataforma IBERIA no encontrada.'); return; }
-
-    // Paso 1: Corregir duración de las categorías de IBERIA por nombre
-    // "serie 60" → 60 min, "pelicula 120" → 120 min
-    const CAT_DURATION_BY_NAME = {
-      'serie 60': 60,
-      'pelicula 120': 120,
-    };
-    const iberiaCategories = state.categories.filter(c => c.platformId === iberiaPlatform.id);
-    iberiaCategories.forEach((cat) => {
-      const correctDur = CAT_DURATION_BY_NAME[(cat.name || '').toLowerCase().trim()];
-      if (correctDur && Number(cat.duration) !== correctDur) {
-        libraryStore.getState().updateCategory(cat.id, { duration: correctDur });
-      }
-    });
-
-    // Paso 2: Leer categorías ya corregidas
-    const freshState = libraryStore.getState();
-    const freshIberiaCats = freshState.categories.filter(c => c.platformId === iberiaPlatform.id);
-
-    let fixed = 0;
-    const updatedVersions = freshState.versions.map((v) => {
-      const trimmed = (v.name || '').trim();
-      // Búsqueda case-insensitive contra el mapa centralizado en VersionMatcher
-      const entry = Object.entries(VersionMatcher.IBERIA_DURATION_MAP).find(
-        ([name]) => name.toLowerCase() === trimmed.toLowerCase()
-      );
-      if (!entry) return v;
-      const correctDuration = entry[1];
-
-      const correctCat = freshIberiaCats.find(c => Number(c.duration) === correctDuration);
-      if (!correctCat) return v;
-
-      fixed++;
-      return { ...v, duration: correctDuration, categoryId: correctCat.id, platformId: iberiaPlatform.id };
-    });
-
-    freshState.setVersions(updatedVersions);
-    alert(`✅ ${fixed} versiones IBERIA reparadas con duraciones y categorías correctas.`);
-  };
-  // Exponer en window para uso desde consola (no hay botón visible)
-  if (typeof window !== 'undefined') window.__repairIberia = handleRepairIberia;
-
   // ── VALIDADOR DE LIBRERÍA ─────────────────────────────────────────────────
   // Revisa que todas las versiones tengan platformId, categoryId y duration válidos.
-  // Para IBERIA también verifica que el nombre esté en el mapa de classifyIberia.
+  // IBERIA ya no tiene reglas propias: usa la librería igual que logica_de_versiones,
+  // así que los mismos chequeos genéricos la cubren.
   const handleValidateLibrary = () => {
     const state = libraryStore.getState();
     const issues = [];
@@ -252,15 +176,6 @@ function LibraryView() {
       if (!v.duration || Number(v.duration) <= 0) {
         issues.push(`⚠️ "${v.name}" (${platName}) — duración 0 o no definida`);
       }
-      // Validación específica IBERIA
-      if (platName.toUpperCase() === 'IBERIA') {
-        const inMap = VersionMatcher.IBERIA_DURATION_MAP[v.name.trim()];
-        if (!inMap) {
-          issues.push(`🔴 "${v.name}" (IBERIA) — no está en el mapa de versiones IBERIA (no se contará en el reporte)`);
-        } else if (inMap !== Number(v.duration)) {
-          issues.push(`🟡 "${v.name}" (IBERIA) — duration en store: ${v.duration}min, esperada: ${inMap}min (no afecta el reporte)`);
-        }
-      }
     });
 
     if (issues.length === 0) {
@@ -276,15 +191,18 @@ function LibraryView() {
   // ===== VERSIONES =====
   const handleAddVersion = () => {
     setEditingId(null);
-    setFormData({
-      platformId: platforms[0]?.id || null,
-      categoryId: categories[0]?.id || null,
-    });
+    setFormData({ platformId: null, categoryId: null });
     setShowForm(true);
   };
 
   const handleSaveVersion = () => {
     if (!formData.name || !formData.platformId || !formData.categoryId) return;
+
+    const { invalidSuffix } = checkVersionSuffix(formData.name);
+    if (invalidSuffix !== null) {
+      alert(`🚫 No se puede crear esta versión.\n\nEl número "${invalidSuffix}" no es parte de la numeración soportada por el sistema (1-4, 5-6, 9-10).\n\nComunícate con el desarrollador si esta numeración debe agregarse.`);
+      return;
+    }
 
     if (editingId) {
       libraryStore.getState().updateVersion(editingId, formData);
@@ -343,16 +261,6 @@ function LibraryView() {
           
 
 
-          // Categoría opcional (columna B, índice 1)
-          const catName = String(row[1] || '').trim();
-          let categoryId = null;
-          if (catName) {
-            const found = state.categories.find(
-              (c) => (c.name || '').trim().toLowerCase() === catName.toLowerCase()
-            );
-            categoryId = found?.id || null;
-          }
-
           // Plataforma opcional (columna C, índice 2)
           const platName = String(row[2] || '').trim();
           let platformId = null;
@@ -361,6 +269,21 @@ function LibraryView() {
               (p) => (p.name || '').trim().toLowerCase() === platName.toLowerCase()
             );
             platformId = foundPlt?.id || null;
+          }
+
+          // Categoría opcional (columna B, índice 1)
+          // IMPORTANTE: se filtra por platformId para no confundir categorías con el mismo
+          // nombre en distintas plataformas (ej: "serie (60 min)" existe en LATAM y en VOD
+          // con effortRate distinto). Sin este filtro, find() devuelve la primera coincidencia
+          // por nombre sin importar la plataforma.
+          const catName = String(row[1] || '').trim();
+          let categoryId = null;
+          if (catName) {
+            const found = state.categories.find(
+              (c) => (c.name || '').trim().toLowerCase() === catName.toLowerCase()
+                && (!platformId || c.platformId === platformId)
+            );
+            categoryId = found?.id || null;
           }
 
           // Si ya existe: actualizar duración/plataforma si el Excel trae datos explícitos
@@ -817,7 +740,7 @@ function LibraryView() {
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-primary" onClick={() => {
                   setEditingId(null);
-                  setFormData({ platformId: filterCatPlatformId || platforms[0]?.id || null });
+                  setFormData({ platformId: filterCatPlatformId || null });
                   setShowForm(true);
                 }}>
                   ➕ Nueva Categoría
@@ -1061,7 +984,7 @@ function LibraryView() {
                           <td><code style={{ fontSize: '0.8rem' }}>{platforms.find((p) => p.id === v.platformId)?.logica || 'N/A'}</code></td>
                           <td>
                             {v.duration
-                              ? `${getCategoryName(v.categoryId)} (${v.duration}min)`
+                              ? buildCategoryLabel({ name: getCategoryName(v.categoryId), duration: v.duration })
                               : getCategoryName(v.categoryId)}
                           </td>
                           <td>{v.duration ? `${v.duration} min` : 'N/A'}</td>
@@ -1193,13 +1116,20 @@ function LibraryView() {
                   </label>
                   <input
                     type="text"
+                    list="effort-group-options"
                     placeholder="Ej: LATAM, IBERIA, COMERCIALES, BP&I, OTROS"
                     value={formData.effortGroup || ''}
                     onChange={(e) => setFormData({ ...formData, effortGroup: e.target.value.toUpperCase() })}
                     style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.875rem' }}
                   />
+                  <datalist id="effort-group-options">
+                    {[...new Set(platforms.map((p) => (p.effortGroup || '').trim()).filter(Boolean))].map((g) => (
+                      <option key={g} value={g} />
+                    ))}
+                  </datalist>
                   <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
                     Agrupa plataformas en una misma columna de horas. Ej: LATAM y BRAZIL → grupo "LATAM".
+                    Elige uno ya existente de la lista para no crear uno nuevo por error de tipeo.
                   </small>
                 </div>
 
@@ -1392,7 +1322,8 @@ function LibraryView() {
                     style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', width: '120px' }}
                   />
                   <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
-                    Solo para agrupar visualmente. No afecta los cálculos de minutos reales.
+                    Determina en qué categoría cae cada fila del reporte (debe coincidir
+                    con la duración real de la versión).
                   </small>
                 </div>
                 <input
@@ -1430,12 +1361,28 @@ function LibraryView() {
                   value={formData.name || ''}
                   onChange={(e) => {
                     const nombre = e.target.value;
-                    const detected = detectDurationFromName(nombre);
-                    setFormData({ ...formData, name: nombre, duration: detected });
+                    const { duration } = checkVersionSuffix(nombre);
+                    setFormData({ ...formData, name: nombre, duration });
                   }}
                 />
+                {/* Advertencia: número de sufijo fuera de la numeración soportada por el sistema */}
+                {formData.name && checkVersionSuffix(formData.name).invalidSuffix !== null && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    background: '#fef2f2', border: '1px solid #fecaca',
+                    borderRadius: '6px', padding: '0.6rem 0.85rem',
+                    fontSize: '0.85rem', color: '#b91c1c',
+                  }}>
+                    <span style={{ fontSize: '1.1rem' }}>🚫</span>
+                    <span>
+                      El número <strong>{checkVersionSuffix(formData.name).invalidSuffix}</strong> no es parte de
+                      la numeración soportada (1-4, 5-6, 9-10). No se puede crear esta versión —
+                      comunícate con el desarrollador para agregar soporte a esta numeración.
+                    </span>
+                  </div>
+                )}
                 {/* Badge de duración + sub-plataforma detectadas en tiempo real */}
-                {formData.name && (() => {
+                {formData.name && checkVersionSuffix(formData.name).invalidSuffix === null && (() => {
                   const subPlatform = detectSubPlatformFromName(formData.name);
                   return (
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1451,7 +1398,7 @@ function LibraryView() {
                         <span>
                           {formData.duration
                             ? <><strong>{formData.duration} min</strong> — detectado del sufijo &quot;{formData.name.match(/(\d+)(?:\s+\S+)?$/)?.[1] || '?'}&quot;</>
-                            : 'Escribe el nombre para detectar la duración'}
+                            : 'Escribe el nombre para detectar la duración (o ingrésala manualmente abajo)'}
                         </span>
                       </div>
                       {/* Badge sub-plataforma LAT/BRA */}
@@ -1687,6 +1634,17 @@ function LibraryView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Asistente de alta de plataforma nueva — nada se guarda hasta el paso final */}
+      {showWizard && (
+        <PlatformWizard
+          onCancel={() => setShowWizard(false)}
+          onComplete={({ name, logica }) => {
+            setShowWizard(false);
+            setSavedPlatformInfo({ name, logica });
+          }}
+        />
       )}
     </div>
   );

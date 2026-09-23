@@ -102,8 +102,13 @@ class PlatformReportsEngine {
     const start = startDate instanceof Date ? startDate : new Date(startDate);
     const end = endDate instanceof Date ? endDate : new Date(endDate + 'T23:59:59');
 
-    // Conjuntos de auditoría
-    const unregisteredVersions = new Set();
+    // Conjuntos de auditoría.
+    // Separados a propósito: "fallback" SÍ suma minutos al editor (duración adivinada),
+    // "discarded" NO suma nada — la fila se excluye del reporte por completo. Mezclarlos
+    // en una sola lista hace que un editor sin crédito por su trabajo (IBERIA no
+    // registrada) se vea igual que uno con una estimación (LATAM/VOD no registrada).
+    const unregisteredVersionsFallback = new Set();
+    const unregisteredVersionsDiscarded = new Set();
     const unregisteredPlatforms = new Set();
     const discardedRows = [];
 
@@ -148,11 +153,11 @@ class PlatformReportsEngine {
         // Usar columna SEASON, no la librería de versiones
         classified = VersionMatcher.classifyBySeason(season, cfg);
       } else if (logica === 'iberia_especial') {
-        // Lógica independiente: usa mapa propio de IBERIA, sin depender del store.
-        // Si no está en el mapa → no cuenta (sin fallback).
-        classified = VersionMatcher.classifyIberia(version);
+        // Igual que logica_de_versiones (busca en la librería), pero SIN fallback
+        // numérico por sufijo: si el nombre no está registrado, no cuenta.
+        classified = VersionMatcher.classifyIberia(version, versions, categories, cfg?.id);
         if (!classified.registered) {
-          unregisteredVersions.add(version);
+          unregisteredVersionsDiscarded.add(version);
           discardedRows.push({ row, reason: `IBERIA: versión no registrada: ${version}` });
           return;
         }
@@ -201,9 +206,9 @@ class PlatformReportsEngine {
         // logica_de_versiones: buscar en librería primero.
         // Si no está → fallback numérico por sufijo (replica Tracking_Project).
         // La fila SÍ suma minutos (con la duración del fallback), pero se registra en audit.
-        classified = VersionMatcher.classify(version, versions, categories);
+        classified = VersionMatcher.classify(version, versions, categories, cfg?.id);
         if (!classified.registered) {
-          unregisteredVersions.add(version);
+          unregisteredVersionsFallback.add(version);
           // classified.duration_minutes ya viene del fallback numérico (no es 0)
         }
       }
@@ -340,7 +345,8 @@ class PlatformReportsEngine {
       platforms: platformsResult,
       grandTotal,
       audit: {
-        unregisteredVersions: [...unregisteredVersions],
+        unregisteredVersionsFallback: [...unregisteredVersionsFallback],
+        unregisteredVersionsDiscarded: [...unregisteredVersionsDiscarded],
         unregisteredPlatforms: [...unregisteredPlatforms],
         discardedCount: discardedRows.length,
       },

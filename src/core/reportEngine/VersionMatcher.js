@@ -17,6 +17,8 @@
  *   Ej: LAT_ORI_SQZ_HD 3 → LATAM | BRA_SAP_CC_SQZ_HD 5 → BRAZIL
  */
 
+import { detectDurationFromSuffix, detectSubPlatform } from './versionRules';
+
 class VersionMatcher {
   /**
    * Normaliza nombre de editor (trim + Title Case)
@@ -39,51 +41,41 @@ class VersionMatcher {
    * @returns {string|null} 'LATAM' | 'BRAZIL' | null
    */
   static detectSubPlatform(versionName) {
-    if (!versionName) return null;
-    const upper = versionName.trim().toUpperCase();
-    if (/\bLAT(AM)?\b|_LAT_|_LAT\b|\bLAT_/.test(upper)) return 'LATAM';
-    if (/\bBRA(SIL)?\b|_BRA_|_BRA\b|\bBRA_/.test(upper)) return 'BRAZIL';
-    return null;
+    return detectSubPlatform(versionName);
   }
 
   /**
-   * Mapa de versiones IBERIA → duración en minutos.
-   * Fuente de verdad independiente del store: no requiere categoryId correcto.
-   * 60 min = series (episodios), 120 min = películas.
-   */
-  static IBERIA_DURATION_MAP = {
-    'e- F HD4Bsubt-OpSCr':  60,
-    'p- FHD4BVOAFRISCTUR':  60,
-    'p- FHD4BVOAFRISCr':    60,
-    'e- FHD4Bsubt-OpSCAD':  60,
-    'e- FCHD1BSubtOpSCr':  120,
-    'p- F HD Ci5BAFRISCr': 120,
-    'p- FHD5BlocuAFRISCr': 120,
-    'p- F HD Ci6BAFRISCr': 120,
-    'e- FCHD1BSubt-OpSCr': 120,
-  };
-
-  /**
-   * Clasifica una versión de IBERIA usando el mapa propio (independiente del store).
-   * Busca por nombre exacto (case-insensitive). Si no está → not registered.
-   * Devuelve category_key = 'resolve_by_duration' para que el engine resuelva
-   * contra las categorías configuradas de IBERIA.
+   * Clasifica una versión de IBERIA buscándola en la librería (versions/categories),
+   * igual que classify() para logica_de_versiones — pero SIN el fallback numérico
+   * por sufijo: si el nombre no está registrado, se marca como no registrada y el
+   * caller la descarta (los códigos de IBERIA son genéricos, no hay sufijo del que
+   * adivinar una duración razonable).
    *
    * @param {string} versionName
-   * @returns {{ category_key: string, duration_minutes: number, registered: boolean, subPlatform: null }}
+   * @param {Array}  versions    - libraryStore.versions
+   * @param {Array}  categories  - libraryStore.categories
+   * @param {number|string|null} platformId - id de la plataforma de la fila que se está
+   *   clasificando. Si hay varias versiones con el mismo nombre en distintas plataformas,
+   *   se prefiere la de esta plataforma; si no hay ninguna, cae a la primera coincidencia
+   *   global (mismo comportamiento histórico).
+   * @returns {{ category_key: string|null, duration_minutes: number, registered: boolean, subPlatform: null }}
    */
-  static classifyIberia(versionName) {
+  static classifyIberia(versionName, versions = [], categories = [], platformId = null) {
     const trimmed = (versionName || '').trim();
-    // Búsqueda case-insensitive
-    const entry = Object.entries(this.IBERIA_DURATION_MAP).find(
-      ([name]) => name.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (!entry) {
+    if (!trimmed) {
       return { category_key: null, duration_minutes: 0, registered: false, subPlatform: null };
     }
+
+    const found = this.findVersionByName(trimmed, versions, platformId);
+    if (!found) {
+      return { category_key: null, duration_minutes: 0, registered: false, subPlatform: null };
+    }
+
+    const cat = categories.find((c) => c.id === found.categoryId);
+    const duration = Number(found.duration) || Number(cat?.duration) || 0;
     return {
-      category_key: 'resolve_by_duration',
-      duration_minutes: entry[1],
+      category_key: cat?.id || found.categoryId || 'desconocido',
+      duration_minutes: duration,
       registered: true,
       subPlatform: null,
     };
@@ -96,13 +88,30 @@ class VersionMatcher {
    * @returns {number} duration_minutes
    */
   static detectDurationFromSuffix(versionName) {
-    const match = String(versionName || '').match(/\s(\d+)(?:\s+\S+)?$/);
-    if (!match) return 30;
-    const n = parseInt(match[1], 10);
-    if (n >= 1 && n <= 4) return 30;
-    if (n >= 5 && n <= 6) return 60;
-    if (n >= 9 && n <= 10) return 120;
-    return 30;
+    return detectDurationFromSuffix(versionName);
+  }
+
+  /**
+   * Busca una versión por nombre (exacto, case-insensitive). Si el nombre existe en más
+   * de una plataforma, prefiere la que coincide con platformId (la plataforma de la fila
+   * que se está clasificando) para que el motor nunca pueda tomar por accidente la
+   * duración/categoría de otra plataforma. Si no hay ninguna coincidencia en esa
+   * plataforma, cae a la primera coincidencia global — el mismo comportamiento histórico,
+   * que sostiene el diseño de "librería global" (una plataforma nueva hereda versiones
+   * ya registradas por otra sin tener que volver a crearlas).
+   *
+   * @param {string} trimmed     - nombre ya trim()eado
+   * @param {Array}  versions    - libraryStore.versions
+   * @param {number|string|null} platformId
+   * @returns {Object|undefined}
+   */
+  static findVersionByName(trimmed, versions, platformId) {
+    const matches = versions.filter(
+      (v) => (v.name || '').trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (matches.length === 0) return undefined;
+    if (platformId == null) return matches[0];
+    return matches.find((v) => String(v.platformId) === String(platformId)) || matches[0];
   }
 
   /**
@@ -112,6 +121,8 @@ class VersionMatcher {
    * @param {string} versionName - Versión que viene del Excel (columna VERSION)
    * @param {Array}  versions    - libraryStore.versions
    * @param {Array}  categories  - libraryStore.categories
+   * @param {number|string|null} platformId - id de la plataforma de la fila que se está
+   *   clasificando (ver findVersionByName).
    * @returns {{
    *   category_key: string|null,
    *   duration_minutes: number,
@@ -119,7 +130,7 @@ class VersionMatcher {
    *   subPlatform: string|null   // 'LATAM' | 'BRAZIL' | null
    * }}
    */
-  static classify(versionName, versions = [], categories = []) {
+  static classify(versionName, versions = [], categories = [], platformId = null) {
     if (!versionName || !versionName.trim()) {
       return { category_key: null, duration_minutes: 0, registered: false, subPlatform: null };
     }
@@ -127,10 +138,9 @@ class VersionMatcher {
     const trimmed = versionName.trim();
     const subPlatform = this.detectSubPlatform(trimmed);
 
-    // 1. Buscar coincidencia exacta (case-insensitive) en la librería
-    const found = versions.find(
-      (v) => (v.name || '').trim().toLowerCase() === trimmed.toLowerCase()
-    );
+    // 1. Buscar coincidencia exacta (case-insensitive) en la librería,
+    //    priorizando la propia plataforma de esta fila (ver findVersionByName).
+    const found = this.findVersionByName(trimmed, versions, platformId);
 
     if (found) {
       const cat = categories.find((c) => c.id === found.categoryId);

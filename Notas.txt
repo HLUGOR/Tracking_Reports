@@ -1,0 +1,380 @@
+4. Incoherencias concretas
+
+
+#1 — La regla de sufijos tiene un agujero silencioso.
+En VersionMatcher.js:100-105: 1-4→30, 5-6→60, 9-10→120, resto→30. Los sufijos 7, 8 y >10 caen a 30 min sin aviso. No es que falle: cuenta mal y parece correcto. Además el regex /\s(\d+)(?:\s+\S+)?$/ exige un espacio antes del número — LAT_ORI_SQZ_HD3 (sin espacio) → 30 min por defecto.
+
+── CONCLUSIÓN DEL #1 (22-23 sep 2026) ──────────────────────────────────────
+
+CERRADO, no es defecto del regex: los sufijos 7, 8 y >10 no existen en la
+operación — es un dominio cerrado (confirmado por el usuario). Verificado
+contra import_versions.xlsx (67 versiones reales): 0 fallos de parseo. La
+convención real (PREFIJO_..._HD <n>) siempre deja el número como último
+token, que es justo lo que el regex espera. No tocar las bandas 1-4/5-6/9-10.
+
+Al perseguir el residuo del "default→30" salieron DOS hallazgos reales,
+ambos verificados contra la librería exportada (libreria_tracking_2026-09-22.json):
+
+  1.1) 9 versiones con nombre estilo IBERIA (sin sufijo numérico, ej.
+       "e- F HD4Bsubt-OpSCr") archivadas bajo la plataforma VOD con 30 min,
+       en vez de bajo IBERIA con 60/120 min.
+       Impacto en reportes: CERO — iberia_especial usa el mapa hardcodeado
+       de VersionMatcher.IBERIA_DURATION_MAP y nunca lee la librería.
+       Confirmado con el Excel real: las 88 filas que usan esos nombres
+       llevan PLATFORM=IBERIA, ninguna cae en VOD.
+       Estado: PENDIENTE (opcional) — no se han movido de VOD a IBERIA.
+
+  1.2) Las 64 versiones de VOD tenían categoryId apuntando a las categorías
+       de LATAM en vez de las propias de VOD (mismo nombre "serie (60 min)"
+       en ambas plataformas, pero effortRate distinto: LATAM=1.5, VOD=1).
+       Causa raíz: handleImportVersions() (LibraryView.jsx ~350) buscaba la
+       categoría por nombre en TODAS las plataformas sin filtrar por la
+       columna Plataforma de la fila — devolvía siempre la primera creada
+       (LATAM) cuando dos plataformas comparten nombre de categoría.
+       Impacto en reportes: CERO — el motor resuelve la categoría final por
+       DURACIÓN exacta (resolveCategoryForPlatform), no por ese campo.
+       Efecto real: solo cosmético en la UI — el desplegable "Categoría" se
+       veía vacío al editar esas 64 versiones desde Librería.
+       Estado: CORREGIDO — datos reasignados en
+       libreria_tracking_2026-09-22_CORREGIDA.json (reimportado a la app) y
+       causa raíz arreglada en el código (filtro por platformId añadido).
+
+SALVAGUARDA AÑADIDA (23 sep 2026): el formulario manual "➕ Nueva Versión"
+(LibraryView.jsx, función checkVersionSuffix()) ahora detecta si el sufijo
+del nombre no pertenece a 1-4/5-6/9-10 y BLOQUEA el guardado con aviso:
+"no es parte de la numeración soportada, comunícate con el desarrollador".
+Solo cubre el alta manual; la importación masiva por Excel (columna D)
+sigue sin bloquear — decisión deliberada para no arriesgar el flujo ya
+validado con datos reales.
+
+──────────────────────────────────────────────────────────────────────────
+
+#2 — La misma regla está copiada en 4 sitios.
+
+detectDurationFromSuffix (VersionMatcher.js:98)
+detectDurationFromName (LibraryView.jsx:20) — idéntica
+detectSubPlatform (VersionMatcher.js:41)
+detectSubPlatformFromName (LibraryView.jsx:36) — copy-paste literal
+Si mañana 7-8 pasa a 90 min, hay que acordarse de los cuatro. Es el defecto más claro de profesionalismo del código.
+
+── CONCLUSIÓN DEL #2 (23 sep 2026) ─────────────────────────────────────────
+
+RESUELTO. Nota: para cuando se atacó este punto, la duplicación había subido
+de 4 a 5 copias (no 4) — al bloquear los sufijos inválidos del #1 se agregó
+sin querer una tercera copia de la regla de duración (checkVersionSuffix en
+LibraryView.jsx) además de las 2 que ya existían. Quedó así justo antes de
+la corrección:
+
+  Regla A (duración por sufijo): 3 copias
+    - VersionMatcher.js:98      detectDurationFromSuffix
+    - LibraryView.jsx:20        detectDurationFromName
+    - LibraryView.jsx:46        checkVersionSuffix (agregada 23 sep)
+  Regla B (LAT/BRA):             2 copias
+    - VersionMatcher.js:41      detectSubPlatform
+    - LibraryView.jsx:36        detectSubPlatformFromName
+
+Se creó una única fuente de verdad: core/reportEngine/versionRules.js
+  - detectDurationFromSuffix(name) → minutos, con fallback 30 (para el motor
+    de reportes y la importación masiva)
+  - checkVersionSuffix(name)       → { duration, invalidSuffix } sin
+    fallback, para poder bloquear altas inválidas (usada por el #1)
+  - detectSubPlatform(name)        → 'LATAM' | 'BRAZIL' | null
+
+VersionMatcher.js y LibraryView.jsx ahora IMPORTAN de versionRules.js en vez
+de tener su propia copia. Los métodos estáticos de VersionMatcher
+(detectSubPlatform, detectDurationFromSuffix) se mantuvieron como fachada
+de una línea que delega al módulo compartido, para no romper nada que ya
+los llamara. Mismo comportamiento, mismas entradas/salidas — verificado con
+`npm start` (Compiled successfully, sin errores de eslint).
+
+Efecto: de aquí en adelante, si la numeración cerrada cambia (ej. si algún
+día se admite el 7 u 8), se edita en un solo archivo y aplica automática-
+mente al motor de reportes, a la importación masiva y al formulario manual.
+
+──────────────────────────────────────────────────────────────────────────
+
+#3 — IBERIA tiene dos fuentes de verdad para el mismo dato.
+IBERIA_DURATION_MAP son 9 nombres de versión hardcodeados en el código fuente (líneas 54-64). Añadir una versión exige editar el código y redesplegar. Y ya generó deuda: existe handleRepairIberia() (LibraryView.jsx:185) solo para reconciliar el store contra ese mapa, y el validador llega a decir textualmente "duration en store: X, esperada: Y (no afecta el reporte)" — es decir, la UI muestra datos que el motor ignora.
+
+Bug latente aquí: en LibraryView.jsx:257 el validador busca en el mapa con v.name.trim() (case-sensitive), mientras que classifyIberia busca en minúsculas. El validador puede marcar una versión como "no registrada" cuando el motor sí la cuenta. Y reventaría si v.name es undefined.
+
+── CONCLUSIÓN DEL #3 (23 sep 2026) ─────────────────────────────────────────
+
+RESUELTO — cambio estructural, no solo el fix mínimo. Decisión del usuario:
+que exista una sola forma (la librería), y que ADEMÁS los valores correctos
+son los del mapa hardcodeado (no los de la librería, que estaban mal).
+
+Pasos aplicados:
+  1. Datos: las 9 versiones IBERIA se reasignaron de VOD (30min, categoría
+     ajena) a IBERIA (60/120min, categoría propia), tomando como fuente de
+     verdad los valores del mapa hardcodeado. Archivo:
+     libreria_tracking_2026-09-22_CORREGIDA_v2.json (reimportado a la app).
+  2. Código: VersionMatcher.classifyIberia(versionName, versions, categories)
+     ya NO usa IBERIA_DURATION_MAP — busca en la librería exactamente igual
+     que classify() (logica_de_versiones), pero SIN el fallback numérico: si
+     el nombre no está registrado, se descarta la fila (mismo comportamiento
+     "sin fallback" de siempre, ahora leyendo de un solo lugar).
+  3. Se eliminaron por completo: IBERIA_DURATION_MAP (VersionMatcher.js),
+     handleRepairIberia() y window.__repairIberia (LibraryView.jsx), y el
+     bloque de validación específico de IBERIA en handleValidateLibrary()
+     (el bug de mayúsculas/minúsculas del validador quedó sin objeto, porque
+     ya no hay mapa aparte contra el que comparar).
+  4. Cadena verificada de punta a punta: PlatformReportsView (lee libraryStore)
+     → PlatformReportsEngine.buildReport() → VersionMatcher.classifyIberia()
+     → busca en versions/categories reales. Sin código hardcodeado en ningún
+     punto. Compilado y confirmado sin errores.
+
+Hallazgos adicionales, surgidos al simular "crear IBERIA desde cero" paso a
+paso contra el código (no estaban en la lista original):
+
+  3.1) Texto engañoso en el formulario de categoría: el campo "Duración de
+       esta categoría" decía "Solo para agrupar visualmente. No afecta los
+       cálculos de minutos reales" — FALSO para logica_de_versiones e
+       iberia_especial: ese mismo campo es el que resolveCategoryForPlatform()
+       usa para decidir el bucket del reporte (PlatformReportsEngine.js:80-99).
+       Estado: CORREGIDO — texto actualizado a "Determina en qué categoría
+       cae cada fila del reporte (debe coincidir con la duración real de la
+       versión)."
+
+  3.2) "Nueva Categoría" y "Nueva Versión" preseleccionaban platforms[0] (la
+       primera plataforma del array, ej. LATAM) como plataforma por defecto,
+       en vez de dejar vacío el placeholder "Selecciona una plataforma" que
+       ya existía en el propio <select>. Mismo patrón de riesgo que causó el
+       bug de categoryId de VOD/LATAM (1.2): un default silencioso que no es
+       "la plataforma con la que estoy trabajando ahora".
+       Estado: CORREGIDO — handleAddVersion() y el botón "➕ Nueva Categoría"
+       ya no aplican ese fallback; el filtro activo de la pestaña Categorías
+       (filterCatPlatformId) se mantiene como único default legítimo, porque
+       ahí sí es una elección explícita y visible del usuario.
+
+Pendiente que sigue igual: subpunto 1.1 ya no aplica tal cual (se resolvió
+como parte de este punto #3, ver paso 1 arriba).
+
+──────────────────────────────────────────────────────────────────────────
+
+#4 — El campo platformId de las versiones es decorativo.
+classify() hace versions.find(v => nombre coincide) sobre todas las versiones, sin filtrar por plataforma (línea 131). El propio código lo admite en un comentario (LibraryView.jsx:114-116). Pero el formulario de versión exige elegir plataforma. El modelo de datos promete un scope que el motor no respeta: dos plataformas no pueden tener el mismo nombre de versión con duraciones distintas, y el usuario no tiene forma de saberlo.
+
+── CONCLUSIÓN DEL #4 (23 sep 2026) ─────────────────────────────────────────
+
+RESUELTO — con fix determinista, no con aviso. Contexto de negocio dado por
+el usuario: la finalidad de la app es reportar el trabajo de cada editor con
+100% de fidelidad, así que ante una incoherencia que pueda atribuir minutos
+a la plataforma equivocada, se prioriza garantizar el resultado correcto en
+vez de advertir y confiar en que alguien lo note (ver memoria
+project_tracking_report_purpose).
+
+Confirmado que el comentario de LibraryView.jsx (86-88) describe una
+decisión de diseño real, no un descuido: una plataforma nueva con
+logica_de_versiones hereda automáticamente las versiones ya existentes con
+el mismo nombre, sin reasignación manual. Ese comportamiento se preservó.
+
+Verificado contra las 70 versiones reales: 0 nombres repetidos entre
+plataformas distintas hoy — el riesgo era latente, no un bug activo.
+
+Fix aplicado en VersionMatcher.js:
+  - Nuevo método findVersionByName(trimmed, versions, platformId): si el
+    nombre existe en más de una plataforma, PREFIERE la versión de la misma
+    plataforma que la fila que se está clasificando; si no hay ninguna en
+    esa plataforma, cae a la primera coincidencia global (preserva el
+    diseño de "librería heredada" de arriba).
+  - classify() y classifyIberia() ahora reciben un 4º parámetro (platformId)
+    y usan findVersionByName() en vez de versions.find() directo.
+  - PlatformReportsEngine.buildReport() les pasa cfg?.id (el id real de la
+    plataforma de la fila, ya resuelto en plataformaConfig[platform]).
+
+Por qué es seguro: es un cambio de precedencia, no de comportamiento — para
+cualquier nombre que hoy sea único en la librería (los 70 actuales), buscar
+"en esta plataforma primero" y buscar "en todas" da el mismo resultado.
+Verificado programáticamente comparando classify() con y sin el nuevo
+parámetro sobre las 70 versiones reales: 0 diferencias. El cambio solo
+entra en juego el día que exista una colisión de nombre entre plataformas,
+y en ese momento garantiza usar la versión correcta para esa fila en vez de
+depender de qué apareció primero en el array.
+
+──────────────────────────────────────────────────────────────────────────
+
+#5 — Dos políticas opuestas para el mismo problema, sin avisar.
+logica_de_versiones cuenta las versiones no registradas con una duración adivinada. iberia_especial las descarta. Ambas son defendibles, pero conviven en el mismo reporte y nadie lo ve: comparar el total de IBERIA contra el de LATAM es comparar cosas distintas.
+
+── CONCLUSIÓN DEL #5 (23 sep 2026) ─────────────────────────────────────────
+
+RESUELTO — resultó ser más grave que "falta un aviso": era una auditoría que
+MENTÍA a medias. Ambas políticas (fallback en logica_de_versiones, descarte
+en iberia_especial) son correctas y se mantienen — dado el contexto de
+negocio (100% fidelidad al trabajo del editor), lo inaceptable no era que
+existan dos políticas, sino que sus resultados quedaran indistinguibles.
+
+Hallazgo verificado en el código: PlatformReportsEngine.js tenía UN SOLO
+Set (unregisteredVersions) donde caían ambos casos (líneas 155 y 206
+antes del fix), y tanto el panel en pantalla como la hoja de Excel los
+mostraban bajo un único título: "⚠️ Versiones no registradas (fallback
+aplicado)". Ese texto es FALSO para la mitad de la lista: una versión de
+IBERIA no registrada no lleva fallback — la fila se descarta entera, el
+editor se queda con 0 minutos por ese ítem, y el reporte lo mostraba como
+si fuera una simple estimación aproximada. Es el peor tipo de error posible
+dado el propósito de la app: trabajo real de un editor desaparece del
+reporte, camuflado como una nota menor.
+
+Fix aplicado (separación real de datos, no solo de texto):
+  - PlatformReportsEngine.js: el Set único se dividió en
+    unregisteredVersionsFallback (SÍ suma minutos, duración adivinada) y
+    unregisteredVersionsDiscarded (NO suma nada, fila excluida). Cada rama
+    (iberia_especial / logica_de_versiones) alimenta su propio Set.
+  - audit ahora expone ambos por separado (ya no existe unregisteredVersions).
+  - PlatformReportsView.jsx: tanto el panel en pantalla como la hoja de
+    Excel "Auditoría" muestran dos bloques con título correcto para cada
+    uno — "⚠️ CONTADAS con duración estimada" vs "🔴 EXCLUIDAS del reporte
+    (0 minutos, sin fallback posible)", este último resaltado en rojo.
+  - Verificado: 0 referencias huérfanas a unregisteredVersions en el
+    proyecto, compila limpio.
+
+ACLARACIÓN IMPORTANTE: este fix es ÚNICAMENTE a nivel de auditoría/reporting.
+No cambia ningún cálculo — los minutos e ítems totales de cada editor,
+plataforma y categoría son EXACTAMENTE los mismos antes y después. Lo único
+que cambió es cómo se explica, en la sección Auditoría (pantalla + Excel),
+qué le pasó a cada nombre no registrado: antes una sola lista con un título
+que solo era cierto para la mitad de los casos; después dos listas, cada
+una con el título que corresponde a lo que realmente ocurrió con esa fila.
+
+──────────────────────────────────────────────────────────────────────────
+
+#6 — Claves internas filtradas a la interfaz.
+En PlatformReportsView.jsx:804-806 la tabla itera ed.byCategory y, si no encuentra definición, muestra la clave cruda. El usuario ve literalmente una categoría llamada unregistered — o un id numérico — como si fuera un nombre de negocio.
+
+── ANÁLISIS DEL #6 (23 sep 2026) ───────────────────────────────────────────
+
+Verificado contra la librería real. La forma "id numérico crudo" es teórica
+hoy: 0 casos en las 70 versiones actuales. La forma "unregistered" literal
+SÍ es un riesgo real, verificado: ocurre cuando una versión no registrada
+adivina una duración (30/60/120) por sufijo, pero la plataforma no tiene
+ninguna categoría configurada con esa duración exacta.
+
+  LATAM/OFF AIR/VOD → cubren 30, 60 y 120 → sin riesgo
+  TEST              → solo tiene categoría de 30 min → SÍ mostraría
+                       "unregistered" si llega una versión sin registrar
+                       de 60 o 120 min
+
+Causa raíz identificada (a pedido del usuario, quien lo enmarcó como
+problema de METODOLOGÍA, no de UI): el alta de plataforma nueva permite
+guardarla con solo nombre + lógica, dejando categorías/versiones para
+"después" sin ninguna obligación de completarlas. TEST es exactamente eso:
+una plataforma que quedó a medio configurar y nadie lo notó hasta que este
+análisis la encontró.
+
+── CONCLUSIÓN DEL #6 (23 sep 2026) ─────────────────────────────────────────
+
+RESUELTO A NIVEL DE CAUSA RAÍZ para plataformas NUEVAS — no se tocó el
+síntoma (el fallback de label en PlatformReportsView) para plataformas ya
+existentes. Decisión del usuario: implementar el Asistente Guiado que
+estaba pendiente de aprobación (ver memoria project-library-wizard), con
+un candado adicional que el diseño original no tenía: el registro no se
+concreta si falta algo.
+
+Implementado:
+  - libraryStore.js: nueva acción commitPlatformSetup({platform, categories,
+    versions}) — UNA sola escritura atómica que crea la plataforma + sus
+    categorías + sus versiones de una vez, generando los ids reales. Si el
+    asistente nunca llega a llamarla, no queda ningún rastro en la librería
+    — no hay estado "a medias" posible.
+  - PlatformWizard.jsx (nuevo): asistente de 4-5 pasos (Identidad →
+    Agrupación → Tasas → Categorías/Versiones [solo logica_de_versiones e
+    iberia_especial] → Resumen). El botón final "Registrar plataforma" se
+    bloquea y lista exactamente qué falta si: falta nombre/lógica, si
+    logica_sin_version no tiene sus 2 categorías con nombre+duración, o si
+    logica_de_versiones/iberia_especial tiene 0 categorías o 0 versiones
+    agregadas. Reutiliza checkVersionSuffix() del #1/#2 para bloquear
+    sufijos inválidos también al crear versiones desde el asistente.
+  - LibraryView.jsx: "➕ Nueva Plataforma" ahora abre el asistente en vez
+    del modal directo de un solo paso. Editar una plataforma existente
+    sigue usando el modal viejo sin cambios (decisión ya contemplada en la
+    propuesta original).
+  - Compilado y verificado sin errores.
+
+PENDIENTE (fuera de este alcance): la plataforma TEST ya existe con su
+configuración incompleta — el asistente previene casos NUEVOS, no repara
+los que ya están así. Y el síntoma en sí (buildCategoryLabel cayendo a la
+clave cruda) sigue sin un fallback legible por si algún día, por otra vía
+(ej. import JSON de respaldo con datos viejos), vuelve a darse el caso.
+Ninguna de las dos cosas se tocó — quedan a decisión del usuario.
+
+── EXTENSIÓN DEL #6: bugs encontrados probando el asistente en vivo (23 sep) ──
+
+Al usar el asistente por primera vez (captura real del usuario) salieron 3
+problemas nuevos, todos de la misma familia que el resto de esta lista: un
+campo podía contradecir a otro sin que nada lo impidiera.
+
+  1) Versión con categoría de otra duración, DENTRO del propio asistente
+     nuevo. Ejemplo real: categoría "SERIE 60 MIN" (60min) creada, versión
+     "LAT_CC_SAP_HD 4" agregada bajo esa categoría — pero el sufijo "4" del
+     nombre autodetecta 30 min, y el formulario guardaba la versión con
+     30min de todos modos, ignorando la categoría elegida. Exactamente el
+     mismo patrón del bug de VOD/LATAM (punto 1.2), reproducido por mí
+     mismo en el código nuevo.
+     Fix: PlatformWizard.jsx ahora cruza el sufijo del nombre contra la
+     duración de la categoría elegida. Si no coinciden, BLOQUEA con aviso
+     señalando ambos valores ("el nombre sugiere 30 min, la categoría es de
+     60 min"). Si coinciden (o el nombre no tiene sufijo, estilo IBERIA),
+     la duración final de la versión es siempre la de la categoría — se
+     quitó el campo de duración manual para versión, ya no hace falta una
+     tercera fuente independiente.
+
+  2) Nombre de categoría como texto libre podía contradecir su propia
+     duración (ej. escribir "SERIE 60 MIN" en el nombre y poner 30 en el
+     campo de duración — nada lo impedía).
+     Fix: el campo de nombre en el asistente ahora es solo la etiqueta base
+     ("serie", "pelicula"); el nombre completo se COMPONE automáticamente
+     como "{etiqueta} ({duración} min)". Con vista previa en vivo. Ya no se
+     puede escribir una duración distinta a la real dentro del nombre.
+
+  3) Consecuencia visible de categorías viejas (creadas con el formulario
+     anterior a este cambio, donde sí se escribía el nombre completo a
+     mano): en la tabla de Versiones de la Librería aparecía "serie (30
+     min) (30min)" — duplicado. La tabla concatenaba el nombre guardado
+     (que ya traía "(30 min)" como texto) con otro "(Xmin)" calculado
+     aparte, sin revisar si ya estaba.
+     Fix: se extrajo buildCategoryLabel() —que ya limpiaba este mismo caso
+     en el Reporte de Plataformas— a core/utils/categoryLabel.js, y se
+     conectó también en LibraryView.jsx. No fue necesario editar ninguna
+     categoría existente una por una; es un arreglo de presentación que
+     corrige la vista de todas a la vez, sin tocar los datos guardados.
+
+Los tres, compilados y verificados sin errores.
+
+──────────────────────────────────────────────────────────────────────────
+
+#7 — classifyBySeason depende del orden posicional.
+cats[0] = serie, cats[1] = película (líneas 174-178). Si alguien reordena las categorías en la UI, el reporte invierte series y películas en silencio. Nada valida ese orden.
+
+#8 — Dos espacios de nombres de claves mezclados.
+logica_de_versiones devuelve un id de categoría; logica_sin_version devuelve un string key. Ambos caen en el mismo byCategory. Funciona porque están separados por plataforma, pero obliga a buildEffortReport a mantener dos mapas paralelos (categoryInfoMap por id y categoryKeyRateMap por key, líneas 394-423). Es fragilidad estructural.
+
+#9 — Formato antiguo/nuevo soportado en runtime para siempre.
+isNewFormat = typeof cats[0] === 'object' (línea 173). Una migración que nunca se cerró y ahora es código permanente en la ruta caliente.
+
+#10 — Generación de IDs frágil.
+Date.now() * 1000 + (++_idCounter % 1000) (libraryStore.js:11). La existencia de repairVersionIds() (línea 80) es la prueba de que hubo colisiones. Además los ids son números pero se comparan con String(c.id) por todas partes — de ahí los String() defensivos regados.
+
+#11 — parseDate y parseTimecode duplicados íntegros entre PlatformReportsEngine y SerieReportsEngine. Y el fallback genérico new Date(s) interpreta 03/04/2026 como formato US: si algún Excel llega en formato mixto, las fechas salen mal sin error.
+
+#12 — Cero tests, con jest ya configurado en package.json y un docs/TESTING.md prometido en el README que no existe (tampoco existen ARQUITECTURA.md ni API_MODULOS.md, ni la carpeta docs/). El README también dice puerto 3000, lista logica_comerciales/bp_i/youtube en ninguna parte, y marca como pendientes cosas ya construidas.
+
+5. Qué lo haría más profesional, por orden de impacto
+Tests unitarios de VersionMatcher. Es código puro, determinista, sin efectos y es lo más crítico del negocio. Cada regla de arriba es un test de una línea. Máximo retorno por esfuerzo, con diferencia.
+
+Una sola fuente de verdad para las reglas. Un versionRules.js con las bandas de duración y los regex LAT/BRA; que LibraryView los importe en vez de duplicarlos. Elimina el #2 completo.
+
+Sacar IBERIA_DURATION_MAP del código al store, y borrar handleRepairIberia como consecuencia. Mientras el dato de negocio viva en un .js, cada alta de versión es un despliegue.
+
+Cerrar el agujero de los sufijos 7/8/>10: o mapearlos explícitamente, o devolver null y tratarlo como no clasificable — pero no disfrazarlo de 30 min.
+
+Marcar la procedencia de cada duración. Que classify() devuelva algo como source: 'library' | 'suffix-fallback' | 'category', y que el reporte pueda distinguir minutos medidos de minutos estimados. Hoy son indistinguibles en el resultado final.
+
+Unificar el espacio de claves (todo por id, o todo por key) y quitar el soporte del formato antiguo con una migración de una sola pasada.
+
+Reemplazar el generador de ids por crypto.randomUUID() y tratar los ids como string siempre. Desaparecen repairVersionIds y los String() defensivos.
+
+Extraer parseDate/parseTimecode a core/utils/ y fijar el formato de fecha esperado explícitamente.
+
+No mostrar claves internas en la UI: etiquetar unregistered como "Sin clasificar" y resaltarlo en color, no como una categoría más.
+

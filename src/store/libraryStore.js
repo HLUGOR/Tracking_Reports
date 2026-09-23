@@ -31,6 +31,38 @@ const libraryStore = create(
             platforms: state.platforms.map((p) => (p.id === id ? { ...p, ...updates } : p)),
           })),
         
+        // Crea una plataforma completa (plataforma + categorías + versiones) en una sola
+        // escritura atómica. Usado por el Asistente de Plataforma: nada se guarda hasta que
+        // el usuario confirma el paso final, y si algo falta, no se llama a esta acción — no
+        // queda ninguna plataforma a medias en la librería.
+        // categories: [{ tempKey, data: {name, duration, color, effortRate} }]
+        // versions:   [{ tempCategoryKey, data: {name, duration} }]
+        commitPlatformSetup: ({ platform, categories = [], versions = [] }) =>
+          set((state) => {
+            const platformId = uniqueId();
+            const newPlatform = { id: platformId, active: true, ...platform };
+
+            const categoryIdByTempKey = {};
+            const newCategories = categories.map((c) => {
+              const id = uniqueId();
+              categoryIdByTempKey[c.tempKey] = id;
+              return { id, platformId, ...c.data };
+            });
+
+            const newVersions = versions.map((v) => ({
+              id: uniqueId(),
+              platformId,
+              categoryId: categoryIdByTempKey[v.tempCategoryKey] ?? null,
+              ...v.data,
+            }));
+
+            return {
+              platforms: [...state.platforms, newPlatform],
+              categories: [...state.categories, ...newCategories],
+              versions: [...state.versions, ...newVersions],
+            };
+          }),
+
         deletePlatform: (id) =>
           set((state) => ({
             platforms: state.platforms.filter((p) => p.id !== id),
