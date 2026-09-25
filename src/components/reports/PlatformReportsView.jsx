@@ -9,7 +9,12 @@ import excelStore from '../../store/excelStore';
 import libraryStore from '../../store/libraryStore';
 import PlatformReportsEngine from '../../core/reportEngine/PlatformReportsEngine';
 import { buildCategoryLabel } from '../../core/utils/categoryLabel';
+import useTranslation from '../../i18n/useTranslation';
+import { translate } from '../../i18n/translations';
 import './PlatformReportsView.css';
+
+// El Excel exportado SIEMPRE va en inglés, sin importar el idioma activo en pantalla.
+const e = (text) => translate(text, 'en');
 
 // Formatea minutos a entero
 function formatMinutes(mins) {
@@ -31,9 +36,9 @@ function secondsToMinutes(seconds) {
 }
 
 // Formatea una fecha ISO a locale
-function formatDate(isoStr) {
+function formatDate(isoStr, language = 'es') {
   if (!isoStr) return '';
-  return new Date(isoStr).toLocaleString('es-MX', {
+  return new Date(isoStr).toLocaleString(language === 'en' ? 'en-US' : 'es-MX', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -43,6 +48,7 @@ function formatDate(isoStr) {
 }
 
 function PlatformReportsView() {
+  const { t, language } = useTranslation();
   const rows = excelStore((s) => s.excelRows);
   const library = libraryStore((s) => ({
     platforms: s.platforms,
@@ -70,7 +76,7 @@ function PlatformReportsView() {
   // ── Generar reporte ────────────────────────────────────────────────────────
   const handleGenerate = () => {
     if (dateField !== 'all' && (!startDate || !endDate)) {
-      setError('Selecciona ambas fechas o elige "Sin filtro de fecha".');
+      setError(t('Selecciona ambas fechas o elige "Sin filtro de fecha".'));
       return;
     }
     setError(null);
@@ -115,7 +121,7 @@ function PlatformReportsView() {
     wb.created = new Date();
 
     const periodoStr = dateField === 'all'
-      ? 'Todos los registros'
+      ? e('Todos los registros')
       : `${startDate} → ${endDate}`;
 
     // ── Paleta de colores ──────────────────────────────────────────────────
@@ -195,10 +201,10 @@ function PlatformReportsView() {
         ws.addRow([]);
 
         // Encabezado
-        const hdr = ws.addRow([plt.platform, 'TIEMPO', 'MINUTOS', 'TOTAL']);
+        const hdr = ws.addRow([plt.platform, e('TIEMPO'), e('MINUTOS'), e('TOTAL')]);
         hdr.height = 20;
         ['A','B','C','D'].forEach((col, i) => {
-          applyHeaderCell(hdr.getCell(col), [plt.platform,'TIEMPO','MINUTOS','TOTAL'][i], COLOR.headerDark);
+          applyHeaderCell(hdr.getCell(col), [plt.platform, e('TIEMPO'), e('MINUTOS'), e('TOTAL')][i], COLOR.headerDark);
         });
 
         // Filas editores
@@ -218,7 +224,7 @@ function PlatformReportsView() {
 
         // Fila TOTAL
         const totRow = ws.addRow([
-          'TOTAL',
+          e('TOTAL'),
           formatTimecode(plt.totalSeconds),
           parseFloat(secondsToMinutes(plt.totalSeconds)),
           plt.totalCount,
@@ -245,10 +251,10 @@ function PlatformReportsView() {
         ws.addRow([]);
 
         // Encabezado
-        const hdr = ws.addRow(['Editor', 'MINUTOS', 'TOTAL']);
+        const hdr = ws.addRow([e('Editor'), e('MINUTOS'), e('TOTAL')]);
         hdr.height = 20;
         ['A','B','C'].forEach((col, i) => {
-          applyHeaderCell(hdr.getCell(col), ['Editor','MINUTOS','TOTAL'][i], COLOR.headerDark);
+          applyHeaderCell(hdr.getCell(col), [e('Editor'), e('MINUTOS'), e('TOTAL')][i], COLOR.headerDark);
         });
 
         // Filas editores
@@ -266,7 +272,7 @@ function PlatformReportsView() {
 
         // Fila TOTAL
         const totRow = ws.addRow([
-          'TOTAL',
+          e('TOTAL'),
           Math.round(plt.totalMinutes),
           plt.totalCount,
         ]);
@@ -292,10 +298,10 @@ function PlatformReportsView() {
         ws.addRow([]);
 
         // Encabezado
-        const hdr = ws.addRow(['Editor', 'CLIPS', 'SHORT', 'TOTAL']);
+        const hdr = ws.addRow([e('Editor'), e('CLIPS'), e('SHORT'), e('TOTAL')]);
         hdr.height = 20;
         ['A','B','C','D'].forEach((col, i) => {
-          applyHeaderCell(hdr.getCell(col), ['Editor','CLIPS','SHORT','TOTAL'][i], COLOR.headerDark);
+          applyHeaderCell(hdr.getCell(col), [e('Editor'), e('CLIPS'), e('SHORT'), e('TOTAL')][i], COLOR.headerDark);
         });
 
         // Filas editores
@@ -313,7 +319,7 @@ function PlatformReportsView() {
         // Fila TOTAL
         const totClips  = plt.totalByCategory['clips']?.count  || 0;
         const totShorts = plt.totalByCategory['shorts']?.count || 0;
-        const ytTotRow  = ws.addRow(['TOTAL', totClips, totShorts, plt.totalCount]);
+        const ytTotRow  = ws.addRow([e('TOTAL'), totClips, totShorts, plt.totalCount]);
         ytTotRow.height = 18;
         ['A','B','C','D'].forEach((col) => applyTotalCell(ytTotRow.getCell(col), ytTotRow.getCell(col).value));
         continue;
@@ -363,15 +369,15 @@ function PlatformReportsView() {
       ws.addRow([]);
 
       // Encabezado
-      const hdrRow = ws.addRow(['Editor', ...headerCats, 'Minutos', 'Total']);
+      const hdrRow = ws.addRow([e('Editor'), ...headerCats, e('Minutos'), e('Total')]);
       hdrRow.height = 20;
-      hdrRow.getCell(1).value = 'Editor';
-      applyHeaderCell(hdrRow.getCell(1), 'Editor', COLOR.headerDark);
+      hdrRow.getCell(1).value = e('Editor');
+      applyHeaderCell(hdrRow.getCell(1), e('Editor'), COLOR.headerDark);
       headerCats.forEach((_, i) => {
         applyHeaderCell(hdrRow.getCell(2 + i), headerCats[i], COLOR.headerBlue);
       });
-      applyHeaderCell(hdrRow.getCell(2 + sortedCats.length), 'Minutos', COLOR.headerGreen);
-      applyHeaderCell(hdrRow.getCell(3 + sortedCats.length), 'Total', COLOR.headerGreen);
+      applyHeaderCell(hdrRow.getCell(2 + sortedCats.length), e('Minutos'), COLOR.headerGreen);
+      applyHeaderCell(hdrRow.getCell(3 + sortedCats.length), e('Total'), COLOR.headerGreen);
 
       // Filas editores
       plt.editors.forEach((ed, idx) => {
@@ -386,13 +392,13 @@ function PlatformReportsView() {
 
       // Fila TOTAL
       const totalCatCounts = sortedCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
-      const totRow = ws.addRow(['TOTAL', ...totalCatCounts, Math.round(plt.totalMinutes), plt.totalCount]);
+      const totRow = ws.addRow([e('TOTAL'), ...totalCatCounts, Math.round(plt.totalMinutes), plt.totalCount]);
       totRow.height = 18;
       for (let i = 1; i <= totalCols; i++) applyTotalCell(totRow.getCell(i), totRow.getCell(i).value);
     }
 
     // ── Hoja RESUMEN ───────────────────────────────────────────────────────
-    const wsRes = wb.addWorksheet('Resumen');
+    const wsRes = wb.addWorksheet(e('Resumen'));
 
     // Recopilar todas las categorías (solo plataformas con categorías; las sin categorías como COMERCIALES y BP&I no tienen)
     const allCatKeys = [];
@@ -432,7 +438,7 @@ function PlatformReportsView() {
     ];
 
     // Título resumen
-    const resTitleRow = wsRes.addRow([`RESUMEN GENERAL  •  ${periodoStr}`]);
+    const resTitleRow = wsRes.addRow([`${e('RESUMEN GENERAL')}  •  ${periodoStr}`]);
     wsRes.mergeCells(`A1:${lastResCol}1`);
     const rtc = resTitleRow.getCell(1);
     rtc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -440,18 +446,18 @@ function PlatformReportsView() {
     rtc.alignment = { horizontal: 'center', vertical: 'middle' };
     resTitleRow.height = 28;
 
-    const genRow = wsRes.addRow([`Generado: ${new Date(reportData.generatedAt).toLocaleString('es-MX')}`]);
+    const genRow = wsRes.addRow([`${e('Generado:')} ${new Date(reportData.generatedAt).toLocaleString('en-US')}`]);
     wsRes.mergeCells(`A2:${lastResCol}2`);
     genRow.getCell(1).font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF64748B' } };
     genRow.getCell(1).alignment = { horizontal: 'center' };
     wsRes.addRow([]);
 
-    const resHdr = wsRes.addRow(['Plataforma', ...allCatLabels, 'Minutos', 'Total']);
+    const resHdr = wsRes.addRow([e('Plataforma'), ...allCatLabels, e('Minutos'), e('Total')]);
     resHdr.height = 20;
-    applyHeaderCell(resHdr.getCell(1), 'Plataforma', COLOR.headerDark);
+    applyHeaderCell(resHdr.getCell(1), e('Plataforma'), COLOR.headerDark);
     allCatLabels.forEach((_, i) => applyHeaderCell(resHdr.getCell(2 + i), allCatLabels[i], COLOR.headerBlue));
-    applyHeaderCell(resHdr.getCell(2 + sortedAllCats.length), 'Minutos', COLOR.headerGreen);
-    applyHeaderCell(resHdr.getCell(3 + sortedAllCats.length), 'Total', COLOR.headerGreen);
+    applyHeaderCell(resHdr.getCell(2 + sortedAllCats.length), e('Minutos'), COLOR.headerGreen);
+    applyHeaderCell(resHdr.getCell(3 + sortedAllCats.length), e('Total'), COLOR.headerGreen);
 
     reportData.platforms.forEach((plt, idx) => {
       const catCounts = sortedAllCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
@@ -475,15 +481,15 @@ function PlatformReportsView() {
       s + (p.logica === 'logica_comerciales' ? p.totalSeconds / 60 : p.totalMinutes), 0
     );
     const resumenGrandCount = reportData.platforms.reduce((s, p) => s + p.totalCount, 0);
-    const grandRow = wsRes.addRow(['GRAN TOTAL', ...grandCatCounts, Math.round(resumenGrandMinutes), resumenGrandCount]);
+    const grandRow = wsRes.addRow([e('GRAN TOTAL'), ...grandCatCounts, Math.round(resumenGrandMinutes), resumenGrandCount]);
     grandRow.height = 18;
     for (let i = 1; i <= totalResumen; i++) applyTotalCell(grandRow.getCell(i), grandRow.getCell(i).value);
 
     // ── Hoja AUDITORÍA ─────────────────────────────────────────────────────
-    const wsAudit = wb.addWorksheet('Auditoría');
+    const wsAudit = wb.addWorksheet(e('Auditoría'));
     wsAudit.columns = [{ width: 44 }, { width: 42 }];
 
-    const auditTitle = wsAudit.addRow(['AUDITORÍA DEL REPORTE']);
+    const auditTitle = wsAudit.addRow([e('AUDITORÍA DEL REPORTE')]);
     wsAudit.mergeCells('A1:B1');
     const atc = auditTitle.getCell(1);
     atc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -509,10 +515,10 @@ function PlatformReportsView() {
       wsAudit.addRow([]);
     };
 
-    addAuditSection('🚫 Plataformas no registradas (descartadas):', reportData.audit.unregisteredPlatforms, '✅ Todas registradas');
-    addAuditSection('⚠️ Versiones no registradas — CONTADAS con duración estimada:', reportData.audit.unregisteredVersionsFallback, '✅ Todas registradas');
-    addAuditSection('🔴 Versiones no registradas — EXCLUIDAS del reporte (0 minutos, sin fallback posible):', reportData.audit.unregisteredVersionsDiscarded, '✅ Todas registradas');
-    const discRow = wsAudit.addRow(['Filas descartadas (total):', reportData.audit.discardedCount]);
+    addAuditSection(e('🚫 Plataformas no registradas (descartadas):'), reportData.audit.unregisteredPlatforms, e('✅ Todas registradas'));
+    addAuditSection(e('⚠️ Versiones no registradas — CONTADAS con duración estimada:'), reportData.audit.unregisteredVersionsFallback, e('✅ Todas registradas'));
+    addAuditSection(e('🔴 Versiones no registradas — EXCLUIDAS del reporte (0 minutos, sin fallback posible):'), reportData.audit.unregisteredVersionsDiscarded, e('✅ Todas registradas'));
+    const discRow = wsAudit.addRow([e('Filas descartadas (total):'), reportData.audit.discardedCount]);
     discRow.getCell(1).font = fontBold;
     discRow.getCell(2).font = { ...fontBold, color: { argb: 'FFB91C1C' } };
 
@@ -523,7 +529,7 @@ function PlatformReportsView() {
     const a = document.createElement('a');
     a.href = url;
     const ts = new Date().toISOString().slice(0, 10);
-    a.download = `reporte_plataformas_${ts}.xlsx`;
+    a.download = `platform_report_${ts}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -531,21 +537,21 @@ function PlatformReportsView() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="platform-reports">
-      <h2>📊 Reporte por Plataforma / Versión</h2>
+      <h2>📊 {t('Reporte por Plataforma / Versión')}</h2>
 
       {/* ── Filtros ── */}
       <div className="pr-filters">
         {/* Selector de campo de fecha */}
         <div className="pr-filter-group">
-          <label>Filtrar por fecha:</label>
+          <label>{t('Filtrar por fecha:')}</label>
           <select
             value={dateField}
             onChange={(e) => setDateField(e.target.value)}
             disabled={loading}
           >
-            <option value="approved_date">✅ APPROVED_DATE</option>
-            <option value="air_date">📅 AIR_DATE</option>
-            <option value="all">🔓 Sin filtro de fecha</option>
+            <option value="approved_date">✅ {t('APPROVED_DATE')}</option>
+            <option value="air_date">📅 {t('AIR_DATE')}</option>
+            <option value="all">🔓 {t('Sin filtro de fecha')}</option>
           </select>
         </div>
 
@@ -553,7 +559,7 @@ function PlatformReportsView() {
         {dateField !== 'all' && (
           <>
             <div className="pr-filter-group">
-              <label>Desde:</label>
+              <label>{t('Desde:')}</label>
               <input
                 type="date"
                 value={startDate}
@@ -562,7 +568,7 @@ function PlatformReportsView() {
               />
             </div>
             <div className="pr-filter-group">
-              <label>Hasta:</label>
+              <label>{t('Hasta:')}</label>
               <input
                 type="date"
                 value={endDate}
@@ -578,7 +584,7 @@ function PlatformReportsView() {
           onClick={handleGenerate}
           disabled={loading || rows.length === 0}
         >
-          {loading ? '⏳ Generando...' : '▶ Generar Reporte'}
+          {loading ? `⏳ ${t('Generando...')}` : `▶ ${t('Generar Reporte')}`}
         </button>
 
         {reportData && (
@@ -586,14 +592,14 @@ function PlatformReportsView() {
             className="pr-btn-export"
             onClick={() => handleExportExcel()}
           >
-            ⬇ Descargar Excel
+            ⬇ {t('Descargar Excel')}
           </button>
         )}
       </div>
 
       {error && <div className="pr-error">{error}</div>}
       {rows.length === 0 && (
-        <div className="pr-empty">⬆️ Carga un archivo Excel para generar el reporte.</div>
+        <div className="pr-empty">⬆️ {t('Carga un archivo Excel para generar el reporte.')}</div>
       )}
 
       {/* ── Resultado ── */}
@@ -602,21 +608,21 @@ function PlatformReportsView() {
           {/* Resumen general */}
           <div className="pr-summary">
             <span>
-              🗓 Período:{' '}
+              🗓 {t('Período:')}{' '}
               {dateField === 'all'
-                ? 'Todos los registros'
+                ? t('Todos los registros')
                 : `${startDate} → ${endDate}`}
             </span>
-            <span>🎬 Total registros procesados: <strong>{rows.length - reportData.audit.discardedCount}</strong></span>
-            <span>⏱ Total minutos: <strong>{formatMinutes(reportData.grandTotal.minutes)}</strong></span>
-            <span>📦 Ítems: <strong>{reportData.grandTotal.count}</strong></span>
-            <span className="pr-generated">Generado: {formatDate(reportData.generatedAt)}</span>
+            <span>🎬 {t('Total registros procesados:')} <strong>{rows.length - reportData.audit.discardedCount}</strong></span>
+            <span>⏱ {t('Total minutos:')} <strong>{formatMinutes(reportData.grandTotal.minutes)}</strong></span>
+            <span>📦 {t('Ítems:')} <strong>{reportData.grandTotal.count}</strong></span>
+            <span className="pr-generated">{t('Generado:')} {formatDate(reportData.generatedAt, language)}</span>
           </div>
 
           {/* Plataformas */}
           {reportData.platforms.length === 0 ? (
             <div className="pr-empty">
-              No se encontraron registros para el período y filtros seleccionados.
+              {t('No se encontraron registros para el período y filtros seleccionados.')}
             </div>
           ) : (
             <div className="pr-platforms">
@@ -632,10 +638,10 @@ function PlatformReportsView() {
                     </span>
                     <span className="pr-platform-name">🌐 {plt.platform}</span>
                     <span className="pr-platform-stats">
-                      {plt.totalCount} ítems ·{' '}
+                      {plt.totalCount} {t('ítems')} ·{' '}
                       {plt.logica === 'logica_comerciales'
-                        ? `${secondsToMinutes(plt.totalSeconds)} min`
-                        : `${formatMinutes(plt.totalMinutes)} min`}
+                        ? `${secondsToMinutes(plt.totalSeconds)} ${t('min')}`
+                        : `${formatMinutes(plt.totalMinutes)} ${t('min')}`}
                     </span>
                   </div>
 
@@ -649,9 +655,9 @@ function PlatformReportsView() {
                           <thead>
                             <tr>
                               <th>{plt.platform}</th>
-                              <th>TIEMPO</th>
-                              <th>MINUTOS</th>
-                              <th>TOTAL</th>
+                              <th>{t('TIEMPO')}</th>
+                              <th>{t('MINUTOS')}</th>
+                              <th>{t('TOTAL')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -666,7 +672,7 @@ function PlatformReportsView() {
                           </tbody>
                           <tfoot>
                             <tr className="pr-total-row">
-                              <td><strong>TOTAL</strong></td>
+                              <td><strong>{t('TOTAL')}</strong></td>
                               <td><strong>{formatTimecode(plt.totalSeconds)}</strong></td>
                               <td><strong>{secondsToMinutes(plt.totalSeconds)}</strong></td>
                               <td><strong>{plt.totalCount}</strong></td>
@@ -677,9 +683,9 @@ function PlatformReportsView() {
                         <table className="pr-cat-table pr-bp-i-table">
                           <thead>
                             <tr>
-                              <th>Editor</th>
-                              <th>MINUTOS</th>
-                              <th>TOTAL</th>
+                              <th>{t('Editor')}</th>
+                              <th>{t('MINUTOS')}</th>
+                              <th>{t('TOTAL')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -693,7 +699,7 @@ function PlatformReportsView() {
                           </tbody>
                           <tfoot>
                             <tr className="pr-total-row">
-                              <td><strong>TOTAL</strong></td>
+                              <td><strong>{t('TOTAL')}</strong></td>
                               <td><strong>{Math.round(plt.totalMinutes)}</strong></td>
                               <td><strong>{plt.totalCount}</strong></td>
                             </tr>
@@ -703,10 +709,10 @@ function PlatformReportsView() {
                         <table className="pr-cat-table pr-youtube-table">
                           <thead>
                             <tr>
-                              <th>Editor</th>
-                              <th>CLIPS</th>
-                              <th>SHORT</th>
-                              <th>TOTAL</th>
+                              <th>{t('Editor')}</th>
+                              <th>{t('CLIPS')}</th>
+                              <th>{t('SHORT')}</th>
+                              <th>{t('TOTAL')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -721,7 +727,7 @@ function PlatformReportsView() {
                           </tbody>
                           <tfoot>
                             <tr className="pr-total-row">
-                              <td><strong>TOTAL</strong></td>
+                              <td><strong>{t('TOTAL')}</strong></td>
                               <td><strong>{plt.totalByCategory['clips']?.count || 0}</strong></td>
                               <td><strong>{plt.totalByCategory['shorts']?.count || 0}</strong></td>
                               <td><strong>{plt.totalCount}</strong></td>
@@ -733,7 +739,7 @@ function PlatformReportsView() {
                           {/* Totales por categoría (lógica estándar) */}
                           {Object.keys(plt.totalByCategory).length > 0 && (
                             <div className="pr-category-totals">
-                              <span className="pr-cat-title">Totales por categoría:</span>
+                              <span className="pr-cat-title">{t('Totales por categoría:')}</span>
                               {(() => {
                                 const configuredKeys = (plt.categories || []).map((c) => c.category_key);
                                 const dataKeys = Object.keys(plt.totalByCategory);
@@ -772,16 +778,16 @@ function PlatformReportsView() {
                                   </span>
                                   <span className="pr-editor-name">👤 {ed.editor}</span>
                                   <span className="pr-editor-stats">
-                                    {ed.totalCount} ítems · {formatMinutes(ed.totalMinutes)} min
+                                    {ed.totalCount} {t('ítems')} · {formatMinutes(ed.totalMinutes)} {t('min')}
                                   </span>
                                 </div>
                                 {expandedEditors[edKey] && (
                                   <table className="pr-cat-table">
                                     <thead>
                                       <tr>
-                                        <th>Categoría</th>
-                                        <th>Ítems</th>
-                                        <th>Minutos</th>
+                                        <th>{t('Categoría')}</th>
+                                        <th>{t('Ítems')}</th>
+                                        <th>{t('Minutos')}</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -794,16 +800,16 @@ function PlatformReportsView() {
                                               {label}
                                             </td>
                                             <td>{val.count}</td>
-                                            <td>{formatMinutes(val.minutes)} min</td>
+                                            <td>{formatMinutes(val.minutes)} {t('min')}</td>
                                           </tr>
                                         );
                                       })}
                                     </tbody>
                                     <tfoot>
                                       <tr className="pr-total-row">
-                                        <td><strong>TOTAL</strong></td>
+                                        <td><strong>{t('TOTAL')}</strong></td>
                                         <td><strong>{ed.totalCount}</strong></td>
-                                        <td><strong>{formatMinutes(ed.totalMinutes)} min</strong></td>
+                                        <td><strong>{formatMinutes(ed.totalMinutes)} {t('min')}</strong></td>
                                       </tr>
                                     </tfoot>
                                   </table>
@@ -822,13 +828,13 @@ function PlatformReportsView() {
 
           {/* ── Auditoría ── */}
           <div className="pr-audit">
-            <h3>🔍 Auditoría</h3>
+            <h3>🔍 {t('Auditoría')}</h3>
             <div className="pr-audit-grid">
               {/* Plataformas no registradas */}
               <div className="pr-audit-block">
-                <h4>🚫 Plataformas no registradas ({reportData.audit.unregisteredPlatforms.length})</h4>
+                <h4>🚫 {t('Plataformas no registradas')} ({reportData.audit.unregisteredPlatforms.length})</h4>
                 {reportData.audit.unregisteredPlatforms.length === 0 ? (
-                  <p className="pr-audit-ok">✅ Todas las plataformas están registradas</p>
+                  <p className="pr-audit-ok">✅ {t('Todas las plataformas están registradas')}</p>
                 ) : (
                   <ul>
                     {reportData.audit.unregisteredPlatforms.map((p) => (
@@ -841,11 +847,11 @@ function PlatformReportsView() {
               {/* Versiones no registradas — contadas con estimación */}
               <div className="pr-audit-block">
                 <h4>
-                  ⚠️ No registradas — contadas con duración estimada ({reportData.audit.unregisteredVersionsFallback.length})
+                  ⚠️ {t('No registradas — contadas con duración estimada')} ({reportData.audit.unregisteredVersionsFallback.length})
                 </h4>
-                <p className="pr-audit-info">Sí suman minutos al editor (duración adivinada por el nombre).</p>
+                <p className="pr-audit-info">{t('Sí suman minutos al editor (duración adivinada por el nombre).')}</p>
                 {reportData.audit.unregisteredVersionsFallback.length === 0 ? (
-                  <p className="pr-audit-ok">✅ Todas las versiones se encontraron en la librería</p>
+                  <p className="pr-audit-ok">✅ {t('Todas las versiones se encontraron en la librería')}</p>
                 ) : (
                   <ul>
                     {reportData.audit.unregisteredVersionsFallback.map((v) => (
@@ -858,13 +864,13 @@ function PlatformReportsView() {
               {/* Versiones no registradas — excluidas sin fallback */}
               <div className="pr-audit-block">
                 <h4 style={{ color: '#b91c1c' }}>
-                  🔴 No registradas — EXCLUIDAS del reporte ({reportData.audit.unregisteredVersionsDiscarded.length})
+                  🔴 {t('No registradas — EXCLUIDAS del reporte')} ({reportData.audit.unregisteredVersionsDiscarded.length})
                 </h4>
                 <p className="pr-audit-info">
-                  <strong>No suman ningún minuto</strong> — la fila se descartó por completo (ej. IBERIA sin código conocido).
+                  <strong>{t('No suman ningún minuto')}</strong> — {t('la fila se descartó por completo (ej. IBERIA sin código conocido).')}
                 </p>
                 {reportData.audit.unregisteredVersionsDiscarded.length === 0 ? (
-                  <p className="pr-audit-ok">✅ Ninguna versión excluida</p>
+                  <p className="pr-audit-ok">✅ {t('Ninguna versión excluida')}</p>
                 ) : (
                   <ul>
                     {reportData.audit.unregisteredVersionsDiscarded.map((v) => (
@@ -876,10 +882,9 @@ function PlatformReportsView() {
 
               {/* Filas descartadas */}
               <div className="pr-audit-block">
-                <h4>🗑 Filas descartadas: {reportData.audit.discardedCount}</h4>
+                <h4>🗑 {t('Filas descartadas:')} {reportData.audit.discardedCount}</h4>
                 <p className="pr-audit-info">
-                  Filas excluidas por fecha fuera de rango, plataforma no registrada
-                  (en el modo IBERIA) o versión sin categoría válida.
+                  {t('Filas excluidas por fecha fuera de rango, plataforma no registrada (en el modo IBERIA) o versión sin categoría válida.')}
                 </p>
               </div>
             </div>

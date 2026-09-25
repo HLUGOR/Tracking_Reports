@@ -1189,100 +1189,77 @@ function LibraryView() {
                 {formData.logica === 'logica_sin_version' && (
                   <>
                     <small style={{ color: '#64748b', fontSize: '0.8rem', margin: '8px 0' }}>
-                      ℹ️ Esta lógica clasifica por columna SEASON. Agregá N cantidad de categorías con sus duraciones:
+                      ℹ️ Esta lógica clasifica por columna SEASON: SEASON ≠ 0 → serie, SEASON = 0 o vacío → película.
+                      El sistema usa la POSICIÓN (siempre serie primero, película segundo) — por eso estas dos
+                      casillas son fijas: no se pueden eliminar ni reordenar, para que nunca se pueda invertir
+                      cuál es cuál.
                     </small>
-                    
-                    {/* Lista de categorías dinámicas */}
+
+                    {/* Dos casillas fijas: serie primero, película segundo. Sin botón de eliminar/reordenar. */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '0.75rem 0', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                      {(formData.categorias || []).map((cat, idx) => {
+                      {[
+                        { idx: 0, label: '🎬 Categoría para SERIES (SEASON ≠ 0)', placeholder: 'Ej: serie (45 min)' },
+                        { idx: 1, label: '🎥 Categoría para PELÍCULAS (SEASON = 0 o vacío)', placeholder: 'Ej: pelicula (120 min)' },
+                      ].map(({ idx, label, placeholder }) => {
+                        const rawCat = (formData.categorias || [])[idx];
                         // Normalizar formato antiguo (string) a objeto al renderizar
-                        const catObj = typeof cat === 'string' ? { key: cat, duration: '', effortRate: null } : cat;
+                        const catObj = typeof rawCat === 'string' ? { key: rawCat, duration: '', effortRate: null } : (rawCat || { key: '', duration: '', effortRate: null });
+                        const updateSlot = (patch) => {
+                          const cats = [...(formData.categorias || [])];
+                          while (cats.length <= idx) cats.push({ key: '', duration: '', effortRate: null });
+                          cats[idx] = { ...catObj, ...patch };
+                          setFormData({ ...formData, categorias: cats });
+                        };
                         return (
-                        <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
-                              📌 Key {idx + 1}
-                            </label>
-                            <input
-                              type="text"
-                              placeholder={idx === 0 ? "Ej: serie_45min" : idx === 1 ? "Ej: pelicula_120min" : "Ej: especial_90min"}
-                              value={catObj.key || ''}
-                              onChange={(e) => {
-                                const cats = [...(formData.categorias || [])];
-                                cats[idx] = { ...catObj, key: e.target.value };
-                                setFormData({ ...formData, categorias: cats });
-                              }}
-                              style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                            />
+                          <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                              <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
+                                {label}
+                              </label>
+                              <input
+                                type="text"
+                                placeholder={placeholder}
+                                value={catObj.key || ''}
+                                onChange={(e) => updateSlot({ key: e.target.value })}
+                                style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '90px' }}>
+                              <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
+                                ⏱ Duración (min)
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="Requerido"
+                                value={catObj.duration || ''}
+                                onChange={(e) => updateSlot({ duration: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                                style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: `1px solid ${catObj.duration ? '#cbd5e1' : '#fca5a5'}`, fontSize: '0.85rem' }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '80px' }}>
+                              <label style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 500 }}>
+                                ⚡ Tasa
+                              </label>
+                              <input
+                                type="number"
+                                step="0.25"
+                                min="0"
+                                placeholder="Ej: 1.5"
+                                value={catObj.effortRate ?? ''}
+                                onChange={(e) => updateSlot({ effortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
+                                style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #fde68a', fontSize: '0.85rem', background: '#fefce8' }}
+                              />
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '90px' }}>
-                            <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
-                              ⏱ Duración (min)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              placeholder="Ej: 45"
-                              value={catObj.duration || ''}
-                              onChange={(e) => {
-                                const cats = [...(formData.categorias || [])];
-                                cats[idx] = { ...catObj, duration: e.target.value ? parseInt(e.target.value) : '' };
-                                setFormData({ ...formData, categorias: cats });
-                              }}
-                              style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                            />
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '80px' }}>
-                            <label style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 500 }}>
-                              ⚡ Tasa
-                            </label>
-                            <input
-                              type="number"
-                              step="0.25"
-                              min="0"
-                              placeholder="Ej: 1.5"
-                              value={catObj.effortRate ?? ''}
-                              onChange={(e) => {
-                                const cats = [...(formData.categorias || [])];
-                                cats[idx] = { ...catObj, effortRate: e.target.value !== '' ? parseFloat(e.target.value) : null };
-                                setFormData({ ...formData, categorias: cats });
-                              }}
-                              style={{ padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #fde68a', fontSize: '0.85rem', background: '#fefce8' }}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const cats = formData.categorias.filter((_, i) => i !== idx);
-                              setFormData({ ...formData, categorias: cats });
-                            }}
-                            style={{
-                              padding: '0.4rem 0.6rem', borderRadius: '4px', border: '1px solid #fca5a5', background: '#fee2e2',
-                              color: '#dc2626', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500, minWidth: '60px'
-                            }}
-                          >
-                            🗑️ Eliminar
-                          </button>
-                        </div>
                         );
                       })}
                     </div>
-
-                    {/* Botón agregar categoría */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const cats = [...(formData.categorias || [])];
-                        cats.push({ key: '', duration: '' });
-                        setFormData({ ...formData, categorias: cats });
-                      }}
-                      style={{
-                        padding: '0.5rem 0.75rem', borderRadius: '4px', border: '1px dashed #3b82f6', background: '#eff6ff',
-                        color: '#1d4ed8', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500, width: '100%', marginBottom: '0.5rem'
-                      }}
-                    >
-                      ➕ Agregar otra categoría
-                    </button>
+                    {(!(formData.categorias || [])[0]?.duration || !(formData.categorias || [])[1]?.duration) && (
+                      <small style={{ color: '#b91c1c' }}>
+                        ⚠️ Ambas categorías necesitan una duración mayor a 0 — si falta, esas filas se descartarán del reporte (sin adivinar un número).
+                      </small>
+                    )}
                   </>
                 )}
               </>

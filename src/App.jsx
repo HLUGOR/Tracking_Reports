@@ -6,8 +6,11 @@ import PlatformReportsView from './components/reports/PlatformReportsView';
 import SerieReportsView from './components/reports/SerieReportsView';
 import LibraryView from './components/dataImport/LibraryView';
 import excelStore from './store/excelStore';
+import LanguageToggle from './components/shared/LanguageToggle';
+import useTranslation from './i18n/useTranslation';
 
 function App() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'platform-reports' | 'serie-reports' | 'reports' | 'library'
   const excelRows = excelStore((state) => state.excelRows);
 
@@ -15,9 +18,14 @@ function App() {
     <div className="app">
       {/* Header */}
       <header className="app-header">
-        <div className="header-content">
-          <h1>📊 TrackingReports</h1>
-          <p>Reportes, Librerías y Métricas - Sin Servidor</p>
+        <div className="header-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1>📊 TrackingReports</h1>
+            <p>{t('Reportes, Librerías y Métricas - Sin Servidor')}</p>
+          </div>
+          {/* Idioma de toda la app. Visible desde ya, aunque todavía no haya datos
+              cargados — no depende de excelRows. */}
+          <LanguageToggle />
         </div>
       </header>
 
@@ -30,34 +38,34 @@ function App() {
               className={`menu-item ${activeTab === 'upload' ? 'active' : ''}`}
               onClick={() => setActiveTab('upload')}
             >
-              📥 Cargar Excel
+              📥 {t('Cargar Excel')}
             </button>
             <button
               className={`menu-item ${activeTab === 'platform-reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('platform-reports')}
               disabled={excelRows.length === 0}
             >
-              🌐 Reporte Plataformas
+              🌐 {t('Reporte Plataformas')}
             </button>
             <button
               className={`menu-item ${activeTab === 'serie-reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('serie-reports')}
               disabled={excelRows.length === 0}
             >
-              📺 Reporte Series
+              📺 {t('Reporte Series')}
             </button>
             <button
               className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
               onClick={() => setActiveTab('reports')}
               disabled={excelRows.length === 0}
             >
-              📈 Reporte Editores
+              📈 {t('Reporte Editores')}
             </button>
             <button
               className={`menu-item ${activeTab === 'library' ? 'active' : ''}`}
               onClick={() => setActiveTab('library')}
             >
-              📚 Librerías
+              📚 {t('Librerías')}
             </button>
           </div>
         </nav>
@@ -68,19 +76,19 @@ function App() {
           {activeTab === 'platform-reports' && excelRows.length > 0 && <PlatformReportsView />}
           {activeTab === 'platform-reports' && excelRows.length === 0 && (
             <div className="empty-state">
-              <p>⬆️ Carga un archivo Excel primero</p>
+              <p>⬆️ {t('Carga un archivo Excel primero')}</p>
             </div>
           )}
           {activeTab === 'serie-reports' && excelRows.length > 0 && <SerieReportsView />}
           {activeTab === 'serie-reports' && excelRows.length === 0 && (
             <div className="empty-state">
-              <p>⬆️ Carga un archivo Excel primero</p>
+              <p>⬆️ {t('Carga un archivo Excel primero')}</p>
             </div>
           )}
           {activeTab === 'reports' && excelRows.length > 0 && <EditorReportsView />}
           {activeTab === 'reports' && excelRows.length === 0 && (
             <div className="empty-state">
-              <p>⬆️ Carga un archivo Excel primero</p>
+              <p>⬆️ {t('Carga un archivo Excel primero')}</p>
             </div>
           )}
           {activeTab === 'library' && <LibraryView />}
@@ -89,7 +97,7 @@ function App() {
 
       {/* Footer */}
       <footer className="app-footer">
-        <p>TrackingReports v1.0 | Aplicación Standalone | © 2026</p>
+        <p>{t('TrackingReports v1.0 | Aplicación Standalone | © 2026')}</p>
       </footer>
     </div>
   );

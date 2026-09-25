@@ -150,8 +150,14 @@ class PlatformReportsEngine {
       let classified;
 
       if (logica === 'logica_sin_version') {
-        // Usar columna SEASON, no la librería de versiones
+        // Usar columna SEASON, no la librería de versiones.
+        // Sin fallback: si la categoría de serie o película no tiene duración
+        // configurada, no se adivina — se descarta y queda visible en auditoría.
         classified = VersionMatcher.classifyBySeason(season, cfg);
+        if (!classified.registered) {
+          discardedRows.push({ row, reason: `${platform}: categoría de ${season === '' || season === '0' ? 'película' : 'serie'} sin duración configurada` });
+          return;
+        }
       } else if (logica === 'iberia_especial') {
         // Igual que logica_de_versiones (busca en la librería), pero SIN fallback
         // numérico por sufijo: si el nombre no está registrado, no cuenta.

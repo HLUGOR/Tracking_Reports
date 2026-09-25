@@ -346,6 +346,42 @@ Los tres, compilados y verificados sin errores.
 #7 — classifyBySeason depende del orden posicional.
 cats[0] = serie, cats[1] = película (líneas 174-178). Si alguien reordena las categorías en la UI, el reporte invierte series y películas en silencio. Nada valida ese orden.
 
+── CONCLUSIÓN DEL #7 (24 sep 2026) ─────────────────────────────────────────
+
+RESUELTO — dos cambios, ninguno tocó el motor de forma riesgosa.
+
+Alcance confirmado: classifyBySeason() solo se llama para logica_sin_version
+(único punto de llamada, PlatformReportsEngine.js:152). Hoy solo 2 plataformas
+reales la usan: SONY ONE y AMAZON. Ninguna otra lógica puede verse afectada.
+
+Demostrado con la función real (no una recreación) que invertir el orden de
+las 2 casillas —incluso solo retipeando el texto, sin tocar ningún botón—
+hace que el motor cuente series como películas: en el ejemplo con datos
+reales de "Schitt's Creek" (AMAZON), un episodio pasó de 1.5h de esfuerzo a
+6h, 4 veces más, sin cambiar una letra del Excel de entrada.
+
+Fix 1 — UI (LibraryView.jsx, sección logica_sin_version): las 2 casillas ya
+no son una lista libre con "🗑️ Eliminar" y "➕ Agregar otra categoría" — son
+2 campos FIJOS, sin poder eliminarse ni reordenarse, con etiqueta explícita
+de qué representan ("🎬 Categoría para SERIES (SEASON ≠ 0)" / "🎥 Categoría
+para PELÍCULAS (SEASON = 0 o vacío)"). Mismo patrón que ya usaba el
+asistente de plataforma nueva (PlatformWizard.jsx) desde el punto #6 — ese
+nunca tuvo este riesgo porque ya bloqueaba las 2 casillas por diseño.
+
+Fix 2 — motor (VersionMatcher.classifyBySeason): a pedido del usuario, se
+quitaron los valores por defecto (antes: sin duración configurada → 60min
+serie / 120min película, adivinados). Ahora si la categoría correspondiente
+no tiene duración > 0, devuelve registered:false y PlatformReportsEngine.js
+descarta la fila con motivo explícito en discardedRows (ej. "AMAZON:
+categoría de serie sin duración configurada") — visible en auditoría, no
+un número inventado en silencio.
+
+Verificado sin regresión: simulada la función nueva contra la configuración
+real de SONY ONE y AMAZON — mismos resultados que antes (45/120 y 60/120
+respectivamente). Compilado sin errores.
+
+──────────────────────────────────────────────────────────────────────────
+
 #8 — Dos espacios de nombres de claves mezclados.
 logica_de_versiones devuelve un id de categoría; logica_sin_version devuelve un string key. Ambos caen en el mismo byCategory. Funciona porque están separados por plataforma, pero obliga a buildEffortReport a mantener dos mapas paralelos (categoryInfoMap por id y categoryKeyRateMap por key, líneas 394-423). Es fragilidad estructural.
 

@@ -168,55 +168,49 @@ class VersionMatcher {
    * Para plataformas logica_sin_version: clasifica por columna SEASON.
    * season != '0' y no vacío → primera categoría (serie)
    * season = '0' o vacío    → segunda categoría (película)
-   * 
+   *
    * Soporta dos formatos:
    * 1. Antiguo: categorias = ['serie_45min', 'pelicula_120min'], duracion_serie_minutos: 45, duracion_pelicula_minutos: 120
    * 2. Nuevo:  categorias = [{key: 'serie_45min', duration: 45}, {key: 'pelicula_120min', duration: 120}]
+   *
+   * SIN valores por defecto: si la categoría correspondiente no tiene una duración
+   * configurada (> 0), no se adivina ningún número — se devuelve registered: false
+   * para que el caller descarte la fila y quede visible en la auditoría, en vez de
+   * contarla con un valor inventado (60/120 no son un respaldo válido, son un dato
+   * de negocio que el administrador tiene que haber configurado).
+   *
+   * @returns {{ category_key: string|null, duration_minutes: number, registered: boolean, subPlatform: null }}
    */
   static classifyBySeason(seasonVal, platformConfig) {
     const season = String(seasonVal || '').trim();
-    
-    // Soportar ambos formatos
+    const isPelicula = season === '' || season === '0';
+
     const cats = platformConfig?.categorias || [];
-    
-    // Detectar formato
     const isNewFormat = cats.length > 0 && typeof cats[0] === 'object';
-    
+
+    let key, duration;
     if (isNewFormat) {
-      // Nuevo formato: array de objetos {key, duration}
-      const serieCategory = cats[0]; // Primera = serie
-      const peliculaCategory = cats[1]; // Segunda = película
-      
-      if (season === '' || season === '0') {
-        // PELÍCULA
-        return {
-          category_key: peliculaCategory?.key || 'pelicula',
-          duration_minutes: peliculaCategory?.duration || 120,
-          registered: true,
-          subPlatform: null
-        };
-      }
-      // SERIE
-      return {
-        category_key: serieCategory?.key || 'serie',
-        duration_minutes: serieCategory?.duration || 60,
-        registered: true,
-        subPlatform: null
-      };
+      // Nuevo formato: array de objetos {key, duration}. Primera = serie, segunda = película.
+      const cat = isPelicula ? cats[1] : cats[0];
+      key = cat?.key;
+      duration = Number(cat?.duration) || 0;
     } else {
       // Formato antiguo: array de strings directos (migración)
-      const duracionSerie = platformConfig?.duracion_serie_minutos || 60;
-      const duracionPelicula = platformConfig?.duracion_pelicula_minutos || 120;
-      
-      // cats[0] es string como "serie (60 min)" o "pelicula (120 min)" - usarlo como key directo
-      const categorySerie = cats[0] || 'serie';
-      const categoryPelicula = cats[1] || 'pelicula';
-
-      if (season === '' || season === '0') {
-        return { category_key: categoryPelicula, duration_minutes: duracionPelicula, registered: true, subPlatform: null };
-      }
-      return { category_key: categorySerie, duration_minutes: duracionSerie, registered: true, subPlatform: null };
+      key = isPelicula ? cats[1] : cats[0];
+      duration = Number(isPelicula
+        ? platformConfig?.duracion_pelicula_minutos
+        : platformConfig?.duracion_serie_minutos) || 0;
     }
+
+    if (duration <= 0) {
+      return { category_key: null, duration_minutes: 0, registered: false, subPlatform: null };
+    }
+    return {
+      category_key: key || (isPelicula ? 'pelicula' : 'serie'),
+      duration_minutes: duration,
+      registered: true,
+      subPlatform: null,
+    };
   }
 }
 

@@ -12,14 +12,20 @@ import ExcelJS from 'exceljs';
 import excelStore from '../../store/excelStore';
 import libraryStore from '../../store/libraryStore';
 import PlatformReportsEngine from '../../core/reportEngine/PlatformReportsEngine';
+import useTranslation from '../../i18n/useTranslation';
+import { translate } from '../../i18n/translations';
 import './EditorReportsView.css';
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+
+// El Excel exportado SIEMPRE va en inglés, sin importar el idioma activo en pantalla.
+const e = (text) => translate(text, 'en');
 
 // Base de horas mensual para calcular % de ocupación
 const BASE_HORAS = 192;
 
 function EditorReportsView() {
+  const { t } = useTranslation();
   const rows    = excelStore((s) => s.excelRows);
   const library = libraryStore((s) => ({
     platforms:  s.platforms,
@@ -43,7 +49,7 @@ function EditorReportsView() {
   // ── Generar reporte ────────────────────────────────────────────────────────
   const handleGenerate = () => {
     if (dateField !== 'all' && (!startDate || !endDate)) {
-      setError('Selecciona ambas fechas o elige "Sin filtro de fecha".');
+      setError(t('Selecciona ambas fechas o elige "Sin filtro de fecha".'));
       return;
     }
     setError(null);
@@ -123,7 +129,7 @@ function EditorReportsView() {
 
     // ── Hoja 1: Horas de Esfuerzo ──────────────────────────────────────────
     if (reportData.effort?.editors?.length > 0) {
-      const ws2 = wb.addWorksheet('Horas de Esfuerzo');
+      const ws2 = wb.addWorksheet(e('Horas de Esfuerzo'));
       ws2.views = [{ showGridLines: false }];
       const groups = reportData.effort.effortGroups.filter(g => g !== 'OTROS');
       const totalCols = groups.length + 4;
@@ -136,24 +142,24 @@ function EditorReportsView() {
         { width: 16 },
       ];
 
-      const titleRow = ws2.addRow([`⚡ Reporte Horas de Esfuerzo — ${reportData.period || ''}`]);
+      const titleRow = ws2.addRow([`⚡ ${e('Reporte Horas de Esfuerzo')} — ${reportData.period || ''}`]);
       ws2.mergeCells(1, 1, 1, totalCols);
       titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1E3A8A' } };
       titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } };
       titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
       titleRow.height = 24;
 
-      const infoRow = ws2.addRow([`Base de cálculo: ${BASE_HORAS}h por editor`]);
+      const infoRow = ws2.addRow([`${e('Base de cálculo:')} ${BASE_HORAS}${e('h por editor')}`]);
       ws2.mergeCells(2, 1, 2, totalCols);
       infoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF475569' } };
       infoRow.getCell(1).alignment = { horizontal: 'center' };
       ws2.addRow([]);
 
       const headers2 = [
-        'Editor',
-        ...groups.map((g) => `Horas ${g}`),
-        'TOTAL Horas',
-        `% Ocupación\n(base ${BASE_HORAS}h)`,
+        e('Editor'),
+        ...groups.map((g) => `${e('Horas')} ${g}`),
+        e('TOTAL Horas'),
+        `${e('% Ocupación')}\n(base ${BASE_HORAS}h)`,
         '% Free Time',
       ];
       const hdr2 = ws2.addRow(headers2);
@@ -204,9 +210,9 @@ function EditorReportsView() {
       });
 
       const totRow = ws2.addRow([
-        'TOTAL',
-        ...groups.map((g) => Math.round(reportData.effort.editors.reduce((s, e) => s + (e.byGroup[g] || 0), 0) * 10) / 10),
-        Math.round(reportData.effort.editors.reduce((s, e) => s + e.totalHours, 0) * 10) / 10,
+        e('TOTAL'),
+        ...groups.map((g) => Math.round(reportData.effort.editors.reduce((s, ed2) => s + (ed2.byGroup[g] || 0), 0) * 10) / 10),
+        Math.round(reportData.effort.editors.reduce((s, ed2) => s + ed2.totalHours, 0) * 10) / 10,
         '', '',
       ]);
       totRow.height = 22;
@@ -220,7 +226,7 @@ function EditorReportsView() {
 
     // ── Hoja 2: Gráfica Ocupación ─────────────────────────────────────────
     if (chartRef.current) {
-      const wsChart = wb.addWorksheet('Gráfica Ocupación');
+      const wsChart = wb.addWorksheet(e('Gráfica Ocupación'));
       wsChart.views = [{ showGridLines: false }];
       const canvas = chartRef.current.canvas;
       const imgDataUrl = canvas.toDataURL('image/png');
@@ -232,14 +238,14 @@ function EditorReportsView() {
         tl: { col: 0.5, row: 1 },
         ext: { width: imgW, height: imgH },
       });
-      const titleChart = wsChart.addRow([`📊 Ocupación y Free Time por Editor (base ${BASE_HORAS}h)`]);
+      const titleChart = wsChart.addRow([`📊 ${e('Ocupación y Free Time por Editor')} (base ${BASE_HORAS}h)`]);
       titleChart.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1E3A8A' } };
     }
 
     // ── Hoja 3: Assets por Plataforma ─────────────────────────────────────
-    const wsAssets = wb.addWorksheet('Assets por Plataforma');
+    const wsAssets = wb.addWorksheet(e('Assets por Plataforma'));
     wsAssets.views = [{ showGridLines: false }];
-    const headersAssets = ['Editor', ...reportData.platforms, 'Total Items', 'Total Min'];
+    const headersAssets = [e('Editor'), ...reportData.platforms, e('Total Items'), e('Total Min')];
     wsAssets.columns = headersAssets.map((_, i) => ({ width: i === 0 ? 28 : 14 }));
     const hdrAssets = wsAssets.addRow(headersAssets);
     hdrAssets.eachCell((cell) => {
@@ -261,8 +267,8 @@ function EditorReportsView() {
       });
     });
     const totAssets = wsAssets.addRow([
-      'TOTAL',
-      ...reportData.platforms.map((p) => reportData.editors.reduce((s, e) => s + (e.byPlatform[p]?.count || 0), 0)),
+      e('TOTAL'),
+      ...reportData.platforms.map((p) => reportData.editors.reduce((s, ed2) => s + (ed2.byPlatform[p]?.count || 0), 0)),
       reportData.summary.totalItems,
       reportData.summary.totalMinutes,
     ]);
@@ -277,7 +283,7 @@ function EditorReportsView() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `reporte_editores_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.download = `editor_report_${new Date().toISOString().slice(0, 10)}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -291,32 +297,32 @@ function EditorReportsView() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="editor-reports">
-      <h2>📊 Reportes por Editor</h2>
+      <h2>📊 {t('Reportes por Editor')}</h2>
 
       {/* Filtros */}
       <div className="filters" style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end', marginBottom: '1.5rem', background: '#fff', padding: '1rem', borderRadius: '8px', boxShadow: '0 1px 4px #0001' }}>
         <div className="filter-group">
-          <label>Filtrar por fecha:</label>
+          <label>{t('Filtrar por fecha:')}</label>
           <select value={dateField} onChange={(e) => setDateField(e.target.value)} style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-            <option value="all">🗓 Sin filtro de fecha</option>
-            <option value="approved_date">✅ Fecha aprobación</option>
-            <option value="air_date">📡 Fecha aire</option>
+            <option value="all">🗓 {t('Sin filtro de fecha')}</option>
+            <option value="approved_date">✅ {t('Fecha aprobación')}</option>
+            <option value="air_date">📡 {t('Fecha aire')}</option>
           </select>
         </div>
         {dateField !== 'all' && (
           <>
             <div className="filter-group">
-              <label>Fecha Inicio:</label>
+              <label>{t('Fecha Inicio:')}</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
             </div>
             <div className="filter-group">
-              <label>Fecha Fin:</label>
+              <label>{t('Fecha Fin:')}</label>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
             </div>
           </>
         )}
         <button onClick={handleGenerate} disabled={loading} style={{ padding: '0.5rem 1.25rem', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-          {loading ? '⏳ Generando…' : '📈 Generar Reporte'}
+          {loading ? `⏳ ${t('Generando…')}` : `📈 ${t('Generar Reporte')}`}
         </button>
       </div>
 
@@ -331,10 +337,10 @@ function EditorReportsView() {
         <>
           <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
             {[
-              { label: 'Total Editores',   value: reportData.summary.totalEditors },
-              { label: 'Total Items',      value: reportData.summary.totalItems },
-              { label: 'Total Minutos',    value: reportData.summary.totalMinutes },
-              { label: 'Plataformas',      value: reportData.summary.totalPlatforms },
+              { label: t('Total Editores'),   value: reportData.summary.totalEditors },
+              { label: t('Total Items'),      value: reportData.summary.totalItems },
+              { label: t('Total Minutos'),    value: reportData.summary.totalMinutes },
+              { label: t('Plataformas'),      value: reportData.summary.totalPlatforms },
             ].map((s) => (
               <div key={s.label} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', borderRadius: '10px', padding: '1rem', color: '#fff', textAlign: 'center' }}>
                 <div style={{ fontSize: '0.8rem', opacity: 0.85, marginBottom: '0.3rem' }}>{s.label}</div>
@@ -353,7 +359,7 @@ function EditorReportsView() {
                 color: activeView === 'effort' ? '#fff' : '#475569',
               }}
             >
-              ⚡ Horas de Esfuerzo
+              ⚡ {t('Horas de Esfuerzo')}
             </button>
             <button
               onClick={() => setActiveView('assets')}
@@ -363,7 +369,7 @@ function EditorReportsView() {
                 color: activeView === 'assets' ? '#fff' : '#475569',
               }}
             >
-              📦 Assets por Plataforma
+              📦 {t('Assets por Plataforma')}
             </button>
           </div>
 
@@ -372,10 +378,10 @@ function EditorReportsView() {
             <>
               {reportData.effort.editors.length === 0 ? (
                 <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '1rem 1.25rem', color: '#92400e', marginBottom: '1rem' }}>
-                  <strong>⚠ Sin datos de esfuerzo.</strong> Para calcular las horas, debes configurar:
+                  <strong>⚠ {t('Sin datos de esfuerzo.')}</strong> {t('Para calcular las horas, debes configurar:')}
                   <ul style={{ margin: '0.5rem 0 0 1.25rem', lineHeight: 1.8 }}>
-                    <li>Campo <strong>"Grupo de Esfuerzo"</strong> en cada plataforma (Librería → Plataformas)</li>
-                    <li>Campo <strong>"Tasa de Esfuerzo"</strong> en las categorías (Librería → Categorías)</li>
+                    <li>{t('Campo "Grupo de Esfuerzo" en cada plataforma (Librería → Plataformas)')}</li>
+                    <li>{t('Campo "Tasa de Esfuerzo" en las categorías (Librería → Categorías)')}</li>
                   </ul>
                 </div>
               ) : (
@@ -385,25 +391,25 @@ function EditorReportsView() {
                     <thead>
                       <tr style={{ background: 'linear-gradient(90deg, #1e3a8a, #1d4ed8)' }}>
                         <th style={{ padding: '0.75rem 1.1rem', textAlign: 'left', color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>
-                          Editor
+                          {t('Editor')}
                         </th>
                         {reportData.effort.effortGroups.filter(g => g !== 'OTROS').map((g) => (
                           <th key={g} style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#fff', fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
-                            Horas {g}
+                            {t('Horas')} {g}
                           </th>
                         ))}
                         <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#fbbf24', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                          TOTAL Horas
+                          {t('TOTAL Horas')}
                         </th>
                         <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#a5f3fc', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                          % Ocupación
-                          <div style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.85 }}>Base {BASE_HORAS}h</div>
+                          {t('% Ocupación')}
+                          <div style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.85 }}>{t('Base')} {BASE_HORAS}h</div>
                         </th>
                         <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#86efac', fontWeight: 700, whiteSpace: 'nowrap' }}>
                           % Free Time
                         </th>
                         <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#e5e7eb', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                          Estado
+                          {t('Estado')}
                         </th>
                       </tr>
                     </thead>
@@ -537,7 +543,7 @@ function EditorReportsView() {
                     </tbody>
                     <tfoot>
                       <tr style={{ background: '#e2e8f0', fontWeight: 700 }}>
-                        <td style={{ padding: '0.6rem 1.1rem', color: '#1e293b' }}>TOTAL</td>
+                        <td style={{ padding: '0.6rem 1.1rem', color: '#1e293b' }}>{t('TOTAL')}</td>
                         {reportData.effort.effortGroups.filter(g => g !== 'OTROS').map((g) => (
                           <td key={g} style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#1e293b' }}>
                             {Math.round(reportData.effort.editors.reduce((s, e) => s + (e.byGroup[g] || 0), 0) * 10) / 10}
@@ -547,7 +553,7 @@ function EditorReportsView() {
                           {Math.round(reportData.effort.editors.reduce((s, e) => s + e.totalHours, 0) * 10) / 10}
                         </td>
                         <td colSpan={3} style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#475569', fontSize: '0.8rem' }}>
-                          Promedio por editor
+                          {t('Promedio por editor')}
                         </td>
                       </tr>
                     </tfoot>
@@ -561,21 +567,21 @@ function EditorReportsView() {
                     labels: editors.map(e => e.editor),
                     datasets: [
                       {
-                        label: '% Óptimo (0-70%)',
+                        label: t('% Óptimo (0-70%)'),
                         data: editors.map(e => Math.min(e.pctOcupacion, 70)),
                         backgroundColor: '#6366f1',
                         borderRadius: 4,
                         borderSkipped: false,
                       },
                       {
-                        label: '% No Óptimo (70-80%)',
+                        label: `% ${t('No Óptimo (70-80%)')}`,
                         data: editors.map(e => Math.max(0, Math.min(e.pctOcupacion - 70, 10))),
                         backgroundColor: '#f97316',
                         borderRadius: 4,
                         borderSkipped: false,
                       },
                       {
-                        label: '% Sobrecarga (≥80%)',
+                        label: t('% Sobrecarga (≥80%)'),
                         data: editors.map(e => Math.max(0, e.pctOcupacion - 80)),
                         backgroundColor: '#dc2626',
                         borderRadius: 4,
@@ -605,25 +611,25 @@ function EditorReportsView() {
                   };
                   return (
                     <div style={{ background: '#fff', borderRadius: '10px', boxShadow: '0 2px 8px #0002', padding: '1.5rem 2rem', marginBottom: '1.5rem' }}>
-                      <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1e3a8a', marginBottom: '1rem' }}>📊 Ocupación y Free Time por Editor (base {BASE_HORAS}h)</div>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1e3a8a', marginBottom: '1rem' }}>📊 {t('Ocupación y Free Time por Editor')} ({t('base')} {BASE_HORAS}h)</div>
                       <div style={{ height: Math.max(editors.length * 44, 180) }}>
                         <Bar ref={chartRef} data={barData} options={barOptions} />
                       </div>
                       {/* Leyenda de colores para ocupación */}
                       <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', fontSize: '0.75rem' }}>
-                        <div style={{ fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>⚠️ Estándar de ocupación:</div>
+                        <div style={{ fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>⚠️ {t('Estándar de ocupación:')}</div>
                         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <div style={{ width: '12px', height: '12px', backgroundColor: '#6366f1', borderRadius: '2px' }}></div>
-                            <span style={{ color: '#475569' }}>Óptimo (0-70%)</span>
+                            <span style={{ color: '#475569' }}>{t('Óptimo (0-70%)')}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <div style={{ width: '12px', height: '12px', backgroundColor: '#f97316', borderRadius: '2px' }}></div>
-                            <span style={{ color: '#475569' }}>No Óptimo (70-80%)</span>
+                            <span style={{ color: '#475569' }}>{t('No Óptimo (70-80%)')}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <div style={{ width: '12px', height: '12px', backgroundColor: '#dc2626', borderRadius: '2px' }}></div>
-                            <span style={{ color: '#475569' }}>Sobrecargado (≥80%)</span>
+                            <span style={{ color: '#475569' }}>{t('Sobrecargado (≥80%)')}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <div style={{ width: '12px', height: '12px', backgroundColor: '#86efac', borderRadius: '2px' }}></div>
@@ -645,7 +651,7 @@ function EditorReportsView() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                 <thead>
                   <tr style={{ background: '#1e3a8a', color: '#fff' }}>
-                    <th style={{ padding: '0.6rem 1rem', textAlign: 'left' }}>Editor</th>
+                    <th style={{ padding: '0.6rem 1rem', textAlign: 'left' }}>{t('Editor')}</th>
                     {reportData.platforms.map((p) => (
                       <th key={p} style={{ padding: '0.6rem 0.75rem', textAlign: 'center' }}>{p}</th>
                     ))}
@@ -669,7 +675,7 @@ function EditorReportsView() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#e2e8f0', fontWeight: 700 }}>
-                    <td style={{ padding: '0.5rem 1rem' }}>TOTAL</td>
+                    <td style={{ padding: '0.5rem 1rem' }}>{t('TOTAL')}</td>
                     {reportData.platforms.map((p) => (
                       <td key={p} style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
                         {reportData.editors.reduce((s, e) => s + (e.byPlatform[p]?.count || 0), 0)}
@@ -686,7 +692,7 @@ function EditorReportsView() {
           {/* Exportar */}
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <button onClick={handleExportExcel} style={{ padding: '0.5rem 1.25rem', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-              📥 Descargar Excel
+              📥 {t('Descargar Excel')}
             </button>
           </div>
         </>
@@ -694,7 +700,7 @@ function EditorReportsView() {
 
       {!reportData && !loading && rows.length === 0 && (
         <div style={{ textAlign: 'center', color: '#94a3b8', marginTop: '3rem' }}>
-          <p>Carga un Excel primero para generar el reporte.</p>
+          <p>{t('Carga un Excel primero para generar el reporte.')}</p>
         </div>
       )}
     </div>

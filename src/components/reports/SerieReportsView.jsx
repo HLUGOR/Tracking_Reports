@@ -3,9 +3,15 @@ import ExcelJS from 'exceljs';
 import excelStore from '../../store/excelStore';
 import libraryStore from '../../store/libraryStore';
 import SerieReportsEngine from '../../core/reportEngine/SerieReportsEngine';
+import useTranslation from '../../i18n/useTranslation';
+import { translate } from '../../i18n/translations';
 import './SerieReportsView.css';
 
+// El Excel exportado SIEMPRE va en inglés, sin importar el idioma activo en pantalla.
+const en = (text) => translate(text, 'en');
+
 function SerieReportsView() {
+  const { t } = useTranslation();
   const rows       = excelStore((s) => s.excelRows);
   const versions   = libraryStore((s) => s.versions);
   const categories = libraryStore((s) => s.categories);
@@ -36,7 +42,7 @@ function SerieReportsView() {
 
   const handleGenerate = () => {
     if (dateField !== 'all' && (!startDate || !endDate)) {
-      setError('Selecciona ambas fechas o elige "Sin filtro de fecha".');
+      setError(t('Selecciona ambas fechas o elige "Sin filtro de fecha".'));
       return;
     }
     setError(null);
@@ -66,7 +72,7 @@ function SerieReportsView() {
     wb.creator = 'TrackingReports';
     wb.created = new Date();
 
-    const ws = wb.addWorksheet('Por Serie');
+    const ws = wb.addWorksheet(en('Por Serie'));
     ws.properties.outlineLevelRow = 1;
     ws.properties.summaryBelow    = false;
 
@@ -94,19 +100,19 @@ function SerieReportsView() {
 
     // Título
     const periodoStr = dateField === 'all'
-      ? 'Todos los registros'
+      ? en('Todos los registros')
       : `${startDate} → ${endDate}`;
 
-    const titleRow = ws.addRow([`REPORTE POR SERIE  •  ${periodoStr}`]);
+    const titleRow = ws.addRow([`${en('REPORTE POR SERIE')}  •  ${periodoStr}`]);
     ws.mergeCells('A1:C1');
     const tc = titleRow.getCell(1);
-    tc.value     = `REPORTE POR SERIE  •  ${periodoStr}`;
+    tc.value     = `${en('REPORTE POR SERIE')}  •  ${periodoStr}`;
     tc.font      = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
     tc.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLOR.header } };
     tc.alignment = { horizontal: 'center', vertical: 'middle' };
     titleRow.height = 28;
 
-    const genRow = ws.addRow([`Generado: ${new Date(reportData.generatedAt).toLocaleString('es-MX')}`]);
+    const genRow = ws.addRow([`${en('Generado:')} ${new Date(reportData.generatedAt).toLocaleString('en-US')}`]);
     ws.mergeCells('A2:C2');
     genRow.getCell(1).font      = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF64748B' } };
     genRow.getCell(1).alignment = { horizontal: 'center' };
@@ -114,11 +120,11 @@ function SerieReportsView() {
     ws.addRow([]);
 
     // Header con auto-filtro
-    const hdrRow = ws.addRow(['Serie', 'HN', 'Horas de Esfuerzo']);
+    const hdrRow = ws.addRow([en('Serie'), en('HN'), en('Horas de Esfuerzo')]);
     hdrRow.height = 20;
     ['A', 'B', 'C'].forEach((col, i) => {
       const cell     = hdrRow.getCell(col);
-      cell.value     = ['Serie', 'HN', 'Horas de Esfuerzo'][i];
+      cell.value     = [en('Serie'), en('HN'), en('Horas de Esfuerzo')][i];
       cell.font      = fontWhite;
       cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLOR.header } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -132,7 +138,7 @@ function SerieReportsView() {
       const fillHex = isAlt ? 'FFF8FAFC' : 'FFFFFFFF';
 
       // Fila principal (serie)
-      const serieRow = ws.addRow([row.serie, `${row.hnCount} HN(s)`, row.totalEffortHours]);
+      const serieRow = ws.addRow([row.serie, `${row.hnCount} ${en('HN(s)')}`, row.totalEffortHours]);
       serieRow.height = 18;
 
       const cA = serieRow.getCell('A');
@@ -141,7 +147,7 @@ function SerieReportsView() {
       cA.alignment = { horizontal: 'left', vertical: 'middle' }; cA.border = border;
 
       const cB = serieRow.getCell('B');
-      cB.value = `${row.hnCount} HN(s)`; cB.font = fontDark;
+      cB.value = `${row.hnCount} ${en('HN(s)')}`; cB.font = fontDark;
       cB.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillHex } };
       cB.alignment = { horizontal: 'left', vertical: 'middle' }; cB.border = border;
 
@@ -190,7 +196,7 @@ function SerieReportsView() {
     const url    = URL.createObjectURL(blob);
     const a      = document.createElement('a');
     a.href       = url;
-    a.download   = `reporte_por_serie_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.download   = `series_report_${new Date().toISOString().slice(0, 10)}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -198,68 +204,68 @@ function SerieReportsView() {
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="serie-reports">
-      <h2>📺 Reporte por Serie</h2>
+      <h2>📺 {t('Reporte por Serie')}</h2>
 
       {/* Filtros */}
       <div className="sr-filters">
         <div className="sr-filter-group">
-          <label>Filtrar por fecha:</label>
+          <label>{t('Filtrar por fecha:')}</label>
           <select value={dateField} onChange={(e) => setDateField(e.target.value)} disabled={loading}>
-            <option value="all">🔓 Sin filtro de fecha</option>
-            <option value="approved_date">✅ APPROVED_DATE</option>
-            <option value="air_date">📅 AIR_DATE</option>
+            <option value="all">🔓 {t('Sin filtro de fecha')}</option>
+            <option value="approved_date">✅ {t('APPROVED_DATE')}</option>
+            <option value="air_date">📅 {t('AIR_DATE')}</option>
           </select>
         </div>
 
         {dateField !== 'all' && (
           <>
             <div className="sr-filter-group">
-              <label>Desde:</label>
+              <label>{t('Desde:')}</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} disabled={loading} />
             </div>
             <div className="sr-filter-group">
-              <label>Hasta:</label>
+              <label>{t('Hasta:')}</label>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} disabled={loading} />
             </div>
           </>
         )}
 
         <button className="sr-btn-generate" onClick={handleGenerate} disabled={loading || rows.length === 0}>
-          {loading ? '⏳ Generando...' : '▶ Generar Reporte'}
+          {loading ? `⏳ ${t('Generando...')}` : `▶ ${t('Generar Reporte')}`}
         </button>
 
         {reportData && (
           <button className="sr-btn-export" onClick={handleExportExcel}>
-            ⬇ Descargar Excel
+            ⬇ {t('Descargar Excel')}
           </button>
         )}
       </div>
 
       {error && <div className="sr-error">{error}</div>}
-      {rows.length === 0 && <div className="sr-empty">⬆️ Carga un archivo Excel para generar el reporte.</div>}
+      {rows.length === 0 && <div className="sr-empty">⬆️ {t('Carga un archivo Excel para generar el reporte.')}</div>}
 
       {/* Resultado */}
       {reportData && (
         <>
           <div className="sr-summary">
-            <span>🗓 Período: {dateField === 'all' ? 'Todos los registros' : `${startDate} → ${endDate}`}</span>
-            <span>📺 Series únicas: <strong>{reportData.totalSeries}</strong></span>
-            <span>📦 Total assets: <strong>{reportData.grandCount}</strong></span>
-            <span>⏱ Horas de Esfuerzo: <strong>{reportData.grandEffortHours}h</strong></span>
+            <span>🗓 {t('Período:')} {dateField === 'all' ? t('Todos los registros') : `${startDate} → ${endDate}`}</span>
+            <span>📺 {t('Series únicas:')} <strong>{reportData.totalSeries}</strong></span>
+            <span>📦 {t('Total assets:')} <strong>{reportData.grandCount}</strong></span>
+            <span>⏱ {t('Horas de Esfuerzo:')} <strong>{reportData.grandEffortHours}h</strong></span>
           </div>
 
           <div className="sr-expand-controls">
-            <button className="sr-btn-expand" onClick={expandAll}>▼ Expandir todo</button>
-            <button className="sr-btn-expand" onClick={collapseAll}>▶ Colapsar todo</button>
+            <button className="sr-btn-expand" onClick={expandAll}>▼ {t('Expandir todo')}</button>
+            <button className="sr-btn-expand" onClick={collapseAll}>▶ {t('Colapsar todo')}</button>
           </div>
 
           <div className="sr-table-wrap">
             <table className="sr-table">
               <thead>
                 <tr>
-                  <th className="sr-th-serie">Serie</th>
+                  <th className="sr-th-serie">{t('Serie')}</th>
                   <th className="sr-th-hn">HN</th>
-                  <th className="sr-th-dur">Horas de Esfuerzo</th>
+                  <th className="sr-th-dur">{t('Horas de Esfuerzo')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -273,7 +279,7 @@ function SerieReportsView() {
                           <button
                             className="sr-toggle-btn"
                             onClick={() => toggleSerie(row.serie)}
-                            title={isExpanded ? 'Colapsar HNs' : 'Ver HNs'}
+                            title={isExpanded ? t('Colapsar HNs') : t('Ver HNs')}
                           >
                             {isExpanded ? '▼' : '▶'}
                           </button>

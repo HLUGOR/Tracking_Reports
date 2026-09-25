@@ -9,8 +9,10 @@ import ColumnMapper from './ColumnMapper';
 import excelStore from '../../store/excelStore';
 import './ExcelUpload.css';
 import { downloadTemplateExcel } from '../../core/excel/downloadTemplate';
+import useTranslation from '../../i18n/useTranslation';
 
 function ExcelUpload({ onSuccess }) {
+  const { t } = useTranslation();
   const fileInputRef = useRef(null);
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -38,11 +40,11 @@ function ExcelUpload({ onSuccess }) {
 
     try {
       // Parsear Excel
-      setMessage('📂 Leyendo archivo...');
+      setMessage(`📂 ${t('Leyendo archivo...')}`);
       const parseResult = await ExcelParser.parseFile(file);
 
       // Validar datos
-      setMessage('✓ Validando estructura...');
+      setMessage(`✓ ${t('Validando estructura...')}`);
       const validation = ExcelValidator.validateData(parseResult.rows, {
         minRows: 1,
         maxRows: 1000000,
@@ -56,11 +58,11 @@ function ExcelUpload({ onSuccess }) {
         validation,
       });
       setShowColumnMapper(true);
-      setMessage('🗺️ Configura el mapeo de columnas...');
+      setMessage(`🗺️ ${t('Configura el mapeo de columnas...')}`);
     } catch (error) {
       console.error('Error al cargar Excel:', error);
       setMsgType('error');
-      setMessage(`❌ Error: ${error.message}`);
+      setMessage(`❌ ${t('Error:')} ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -94,7 +96,7 @@ function ExcelUpload({ onSuccess }) {
 
     setMsgType('success');
     setMessage(
-      `✅ ${parsedData.rowCount} filas cargadas correctamente. Mapeo guardado.`
+      `✅ ${parsedData.rowCount} ${t('filas cargadas correctamente. Mapeo guardado.')}`
     );
 
     // Mostrar mensaje de éxito por 2 segundos
@@ -160,7 +162,7 @@ function ExcelUpload({ onSuccess }) {
   return (
     <div className="excel-upload">
       <div className="upload-container">
-        <h2>📥 Cargar Archivo Excel</h2>
+        <h2>📥 {t('Cargar Archivo Excel')}</h2>
 
         {/* Drag and Drop Zone */}
         <div
@@ -183,15 +185,15 @@ function ExcelUpload({ onSuccess }) {
           {loading ? (
             <div className="loading-state">
               <div className="spinner"></div>
-              <p>Procesando archivo...</p>
+              <p>{t('Procesando archivo...')}</p>
             </div>
           ) : (
             <div className="idle-state">
               <div className="icon">📊</div>
-              <h3>Arrastra tu archivo aquí</h3>
-              <p>o haz clic para seleccionar</p>
+              <h3>{t('Arrastra tu archivo aquí')}</h3>
+              <p>{t('o haz clic para seleccionar')}</p>
               <p className="hint">
-                Formatos aceptados: .xlsx, .xls, .csv
+                {t('Formatos aceptados: .xlsx, .xls, .csv')}
               </p>
             </div>
           )}
@@ -208,10 +210,10 @@ function ExcelUpload({ onSuccess }) {
         {fileInputRef.current?.files?.[0] && !loading && (
           <div className="file-info">
             <p>
-              📄 Archivo: <strong>{fileInputRef.current.files[0].name}</strong>
+              📄 {t('Archivo:')} <strong>{fileInputRef.current.files[0].name}</strong>
             </p>
             <p>
-              💾 Tamaño:{' '}
+              💾 {t('Tamaño:')}{' '}
               <strong>
                 {(fileInputRef.current.files[0].size / 1024).toFixed(2)} KB
               </strong>
@@ -221,16 +223,16 @@ function ExcelUpload({ onSuccess }) {
 
         {/* Instructions */}
         <div className="instructions">
-          <h3>ℹ️ Instrucciones</h3>
+          <h3>ℹ️ {t('Instrucciones')}</h3>
           <ol>
             <li>
-              Carga tu archivo Excel usando drag & drop o haz clic
+              {t('Carga tu archivo Excel usando drag & drop o haz clic')}
             </li>
             <li>
-              Configura el mapeo de columnas (solo una vez por archivo)
+              {t('Configura el mapeo de columnas (solo una vez por archivo)')}
             </li>
             <li>
-              Una vez cargado, ve a la pestaña "Reportes" para generar anál isis
+              {t('Una vez cargado, ve a la pestaña "Reportes" para generar análisis')}
             </li>
           </ol>
         </div>
@@ -240,7 +242,7 @@ function ExcelUpload({ onSuccess }) {
           style={{ marginBottom: '1rem' }}
           onClick={downloadTemplateExcel}
         >
-          📥 Descargar Template Excel
+          📥 {t('Descargar Template Excel')}
         </button>
       </div>
 
