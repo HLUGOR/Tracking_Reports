@@ -1,6 +1,12 @@
+import PlatformReportsEngine from './PlatformReportsEngine';
+import { parseInputDate, approvedDateOf } from '../utils/dateUtils';
+
 class SerieReportsEngine {
   /**
-   * Agrupa filas por SERIE y calcula horas de esfuerzo usando logica_series de la librería.
+   * Agrupa filas por SERIE. Los minutos y las horas de esfuerzo de cada fila se calculan
+   * con el mismo código que los Reportes Plataformas y Editores
+   * (PlatformReportsEngine.evaluateRow): una plataforma tiene UNA sola tasa, la de la
+   * librería, y vale igual en todos los reportes.
    * @param {Array}  rows      - Filas del Excel (excelRows del store)
    * @param {string} startDate - 'YYYY-MM-DD' | null
    * @param {string} endDate   - 'YYYY-MM-DD' | null
@@ -9,66 +15,35 @@ class SerieReportsEngine {
    * @returns {Object} { series, grandTotal, grandEffortHours, grandCount, totalSeries, generatedAt }
    */
   static buildReport(rows, startDate = null, endDate = null, dateField = 'all', library = {}) {
-    const start = startDate ? new Date(startDate) : null;
-    const end   = endDate   ? new Date(endDate + 'T23:59:59') : null;
-
-    const { versions = [], categories = [], platforms = [] } = library;
-
-    // Mapa version → duración en minutos desde la librería
-    const versionDurationMap = {};
-    versions.forEach((v) => {
-      if (!v.name) return;
-      const cat = categories.find((c) => String(c.id) === String(v.categoryId));
-      if (cat) versionDurationMap[v.name.trim().toUpperCase()] = Number(cat.duration) || 0;
-    });
-
-    // Mapa plataforma → seriesConfig { effortRate, enabled }
-    // Si una plataforma tiene seriesLogica: 'logica_series' → usa seriesEffortRate
-    // Si no tiene seriesLogica → sigue apareciendo en el reporte con effortRate = 1
-    const platformSeriesConfig = {};
-    platforms.forEach((p) => {
-      const name = (p.name || '').trim().toUpperCase();
-      platformSeriesConfig[name] = {
-        effortRate: p.seriesLogica === 'logica_series'
-          ? (parseFloat(p.seriesEffortRate) || 1)
-          : 1,
-      };
-    });
+    const start  = parseInputDate(startDate);
+    const endDay = parseInputDate(endDate);
+    const end    = endDay ? new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate(), 23, 59, 59, 999) : null;
+    // Filas con SERIE cuya APPROVED_DATE falta o no es MM/DD/AAAA válida
+    let invalidDateCount = 0;
 
     const serieMap = {};
 
     rows.forEach((row) => {
-      // Filtro de fecha opcional
-      if (dateField !== 'all' && start && end) {
-        const dateRaw = row[dateField] || row[dateField.toUpperCase()] || '';
-        const rowDate = this.parseDate(dateRaw);
-        if (!rowDate || rowDate < start || rowDate > end) return;
-      }
-
       const serie   = this.getCol(row, 'SERIE');
       const hn      = this.getCol(row, 'HN');
-      const version = this.getCol(row, 'VERSION');
-
-      // Parsear duración: timecode HH:MM:SS[:FF] → minutos; número plano → minutos directo
-      const durationRaw = this.getCol(row, 'DURATION');
-      let duration = 0;
-      if (durationRaw.includes(':')) {
-        duration = SerieReportsEngine.parseTimecode(durationRaw) / 60;
-      } else {
-        duration = parseFloat(durationRaw) || 0;
-      }
-
-      // Fallback: buscar duración en librería por VERSION cuando el Excel no trae DURATION
-      if (duration === 0 && version) {
-        duration = versionDurationMap[version.toUpperCase()] || 0;
-      }
-
       if (!serie) return;
 
-      // Tasa de esfuerzo configurada en la librería para esta plataforma
-      const platform = this.getCol(row, 'PLATFORM').toUpperCase();
-      const effortRate = platformSeriesConfig[platform]?.effortRate ?? 1;
-      const effortHours = (duration / 60) * effortRate;
+      // Fecha de aprobación: si falta o no es válida se cuenta para el aviso. Con
+      // "Todos los registros" la fila entra igual; con un rango no se puede ubicar.
+      const approvedRaw = approvedDateOf(row);
+      const approvedOk = !!parseInputDate(approvedRaw);
+      if (!approvedOk) invalidDateCount++;
+
+      // Filtro de fecha opcional
+      if (dateField !== 'all') {
+        const dateRaw = dateField === 'approved_date'
+          ? approvedRaw
+          : (row[dateField] ?? row[dateField.toUpperCase()] ?? '');
+        const rowDate = parseInputDate(dateRaw);
+        if (!rowDate || !start || !end || rowDate < start || rowDate > end) return;
+      }
+
+      const { minutes: duration, hours: effortHours } = PlatformReportsEngine.evaluateRow(row, library);
 
       if (!serieMap[serie]) {
         serieMap[serie] = { serie, hns: new Set(), totalDuration: 0, totalEffortHours: 0, count: 0 };
@@ -105,6 +80,7 @@ class SerieReportsEngine {
       grandEffortHours,
       grandCount,
       totalSeries:     result.length,
+      invalidDateCount,
       generatedAt:     new Date().toISOString(),
     };
   }
@@ -125,24 +101,6 @@ class SerieReportsEngine {
     const m = parseInt(parts[1], 10) || 0;
     const s = parseInt(parts[2], 10) || 0;
     return h * 3600 + m * 60 + s;
-  }
-
-  static parseDate(dateStr) {
-    if (!dateStr && dateStr !== 0) return null;
-    if (typeof dateStr === 'number') {
-      const excelEpoch = new Date(1899, 11, 30);
-      return new Date(excelEpoch.getTime() + dateStr * 86400000);
-    }
-    const s = String(dateStr).trim();
-    if (!s) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00');
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
-      const [day, month, year] = s.split('/');
-      return new Date(year, month - 1, day);
-    }
-    if (s.includes('T')) return new Date(s);
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? null : d;
   }
 }
 

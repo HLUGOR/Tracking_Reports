@@ -385,6 +385,32 @@ respectivamente). Compilado sin errores.
 #8 — Dos espacios de nombres de claves mezclados.
 logica_de_versiones devuelve un id de categoría; logica_sin_version devuelve un string key. Ambos caen en el mismo byCategory. Funciona porque están separados por plataforma, pero obliga a buildEffortReport a mantener dos mapas paralelos (categoryInfoMap por id y categoryKeyRateMap por key, líneas 394-423). Es fragilidad estructural.
 
+── CONCLUSIÓN DEL #8 (25 sep 2026) ─────────────────────────────────────────
+
+RESUELTO sin tocar datos ni cálculos. No era un error activo: era una forma
+frágil de buscar tarifas. byCategory usa ids de categoría para
+logica_de_versiones/iberia_especial y el texto de la casilla para
+logica_sin_version, y buildEffortReport() tenía dos mapas separados
+(categoryInfoMap por id, categoryKeyRateMap por texto) con un if/else por
+lógica para decidir cuál usar. Una lógica nueva que olvidara su rama habría
+dado 0 horas en silencio.
+
+Fix (solo PlatformReportsEngine.buildEffortReport): cada plataforma tiene ahora
+un único rateMap = {...categoryInfoMap, ...categoryKeyRateMap}. Ids (números
+largos) y textos ("serie (45 min)") nunca coinciden, así que se buscan en el
+mismo mapa sin decidir de antemano. Se eliminó la rama separada de
+logica_sin_version; su fallback (sin tasas → totalMinutes × tasa de
+plataforma) se mantiene igual. No se movió ningún dato ni se cambió la
+pantalla: SONY ONE y AMAZON siguen guardando sus casillas como antes.
+
+Verificado: se corrió el motor ANTES y DESPUÉS con la librería real
+(libreria_tracking_2026-09-22_CORREGIDA_v2.json) y el Excel real (482 filas,
+SONY ONE, IBERIA, LATAM, AMAZON, OFF AIR), más un caso extra de
+logica_sin_version sin tasas para cubrir el fallback: horas por editor y
+por grupo IDÉNTICAS en ambos casos. Compila sin errores.
+
+──────────────────────────────────────────────────────────────────────────
+
 #9 — Formato antiguo/nuevo soportado en runtime para siempre.
 isNewFormat = typeof cats[0] === 'object' (línea 173). Una migración que nunca se cerró y ahora es código permanente en la ruta caliente.
 
@@ -414,3 +440,335 @@ Extraer parseDate/parseTimecode a core/utils/ y fijar el formato de fecha espera
 
 No mostrar claves internas en la UI: etiquetar unregistered como "Sin clasificar" y resaltarlo en color, no como una categoría más.
 
+
+══════════════════════════════════════════════════════════════════════════
+ESTADO AL 25 SEP 2026 — PARA RETOMAR EL LUNES
+══════════════════════════════════════════════════════════════════════════
+
+HECHO HOY (aún SIN commit en git):
+  - Punto #8 resuelto (una sola lista de tarifas en el cálculo de horas).
+  - Prueba completa con TQC_Junio_2026 + librería 09-25: 432/432 valores
+    de los 3 Excel descargados cuadran con el cálculo independiente.
+  - Error real encontrado y corregido: 2 versiones de LATAM
+    (BRA_SAP_CC_SQZ_HD 5 y BRA_SAP_CC_SQZ_CREDITS_HD 9) tenían categoría de
+    30 min → faltaban 81.8 h de esfuerzo en LATAM (170.1 h → 251.9 h).
+    El usuario corrigió los datos; se agregó bloqueo en el formulario de
+    versión, marca ⚠️ en la lista de Versiones y chequeo en "Validar librería".
+  - Registro de editores: pestaña Librería → 👤 Editores + aviso al cargar
+    un Excel con nombres no registrados (no deja continuar sin resolverlos).
+    Archivo para restaurar con los 12 editores:
+    Downloads/libreria_tracking_2026-09-25_con_editores.json
+  - Nombres con acento ("JesúS", "CedeñO") corregidos en el motor.
+    Si vuelve a salir: recargar la app con Ctrl+F5 (navegador con código viejo).
+  - Excel Plataformas → hoja Summary: una columna por tipo de contenido,
+    sin "[object Object]" ni columnas repetidas o vacías.
+  - Excel Editores → título ya no dice "Todos los registros" (ahora en inglés).
+  - Reporte Series (decisión del usuario, 26 sep): SONY ONE/AMAZON usan SOLO
+    la regla de SEASON, igual que Plataformas y Editores, así la misma fila
+    vale los mismos minutos en los 3 reportes. Las demás plataformas: 1º
+    DURATION, 2º VERSION. Las 8 series de SONY ONE/AMAZON que salían en 0
+    ahora tienen horas (total 128.5 h → 212 h); las otras 41 no cambian.
+
+PENDIENTE — DECISIONES DEL USUARIO:
+  1. (Resuelto 26 sep: SONY ONE/AMAZON usan solo SEASON en los 3 reportes.)
+  2. Reporte Series usa tasa 1 (horas de contenido), el de Editores usa la
+     tasa de la categoría (horas de esfuerzo). ¿Cuál debe mostrar Series?
+  3. "TBD" (To be defined, versión aún no asignada) — 16 filas de LATAM
+     ("La Llorona"): hoy Plataformas/Editores las cuentan como 30 min
+     adivinados y Series como 0. ¿Contarlas o no hasta que tengan versión?
+  4. "p- F HD Ci3BAFRISCr" (IBERIA, "Highway to Heaven"): no registrada, no
+     se cuenta en ningún reporte. Darla de alta con su duración (¿60 o 120?).
+  5. ¿Registrar alias de nombres cortos viejos (Yra/Yralin → Yralin
+     Trujillo, Cheo → Jose Guerrero, Deci → Decireth Mendoza, Luiis → Luis
+     Cedeño, Jesús → Jesus Diaz) para Excels antiguos?
+  6. Hacer commit + push de todo lo de hoy.
+  7. Seguir con los puntos #9 al #12 de la lista original.
+
+══════════════════════════════════════════════════════════════════════════
+REFERENCIA — DE DÓNDE SALEN LOS MINUTOS DE CADA PLATAFORMA (26 sep 2026)
+══════════════════════════════════════════════════════════════════════════
+
+Se configura en pantalla: Librerías → Plataformas → ✏️ editar (campo "lógica").
+
+LÓGICA POR PLATAFORMA
+  logica_de_versiones .. LATAM, OFF AIR, VOD
+  iberia_especial ...... IBERIA
+  logica_sin_version ... SONY ONE, AMAZON          (regla de SEASON)
+  logica_comerciales ... COMERCIALES
+  logica_bp_i .......... BP&I
+  logica_youtube ....... YOUTUBE
+
+REGLA DE SEASON (logica_sin_version — SONY ONE y AMAZON)
+  Solo mira la columna SEASON; no lee VERSION ni DURATION.
+    SEASON vacío o 0          → PELÍCULA (casilla 2)
+    SEASON con otro valor     → SERIE    (casilla 1)
+  Las 2 casillas son fijas (no se pueden borrar ni reordenar) y deben tener
+  duración > 0; si falta, la fila se descarta y aparece en Auditoría.
+
+    Plataforma  Casilla                    Minutos  Tasa esfuerzo
+    SONY ONE    1 serie (45 min)           45       1.5
+    SONY ONE    2 pelicula (120 min)       120      3
+    AMAZON      1 serie (60 min)           60       1.5
+    AMAZON      2 pelicula (120 min)       120      3
+
+  Se aplica igual en los 3 reportes (misma fila = mismos minutos):
+    Plataformas → minutos de la casilla
+    Editores    → horas = minutos ÷ 60 × tasa de la casilla
+    Series      → horas = minutos ÷ 60 × tasa de Serie de la plataforma (hoy 1)
+  Ej.: ASTRO BOY, SONY ONE, SEASON 1 → 45 min; Editores 1.125 h; Series 0.75 h.
+
+QUIÉN USA LA COLUMNA DURATION
+  Reportes Plataformas y Editores:
+    COMERCIALES → DURATION como tiempo (HH:MM:SS o HH:MM:SS:FF)
+    BP&I        → DURATION (o MINUTOS) como número de minutos
+    Las demás NO la leen: LATAM/OFF AIR/VOD/IBERIA usan la VERSION,
+    SONY ONE/AMAZON la SEASON, YOUTUBE las columnas CLIP y SHORT.
+  Reporte Series (solo filas con columna SERIE):
+    SONY ONE/AMAZON → solo SEASON (no leen DURATION).
+    Las demás → 1º DURATION; si está vacía, 2º la VERSION (duración de su
+    categoría); si ninguna, 0.
+  Con el Excel de junio, en la práctica DURATION solo la usan COMERCIALES y
+  BP&I (que no tienen SERIE, así que no entran al Reporte Series).
+
+
+==============================================================================
+ORDEN DE LÓGICAS EN 4 FAMILIAS — PLAN (26 sep 2026)
+==============================================================================
+Familias:
+  Con versión .... logica_de_versiones, iberia_especial  (LATAM/BRAZIL, OFF AIR, VOD, IBERIA)
+  Sin versión .... logica_sin_version = regla de SEASON  (SONY ONE, AMAZON)
+  Por duración ... logica_por_duracion (NUEVA)           (plataformas COMPLIANCE)
+                   + COMERCIALES y BP&I, que también calculan por duración
+  Por conteo ..... logica_youtube                        (YOUTUBE)
+Negocio: TV por suscripción = LATAM(+BRAZIL), OFF AIR, VOD, IBERIA, COMERCIALES, BP&I.
+         Digital = el resto. El Reporte Editores NO se separa por negocio.
+
+Pasos:
+  1. Crear logica_por_duracion ......................... HECHO (26 sep)
+  2. Reporte Series con la misma tasa que Editores y quitar la casilla
+     "Incluir en Reporte Series" (preguntar si 2.75 de COMERCIALES es real)
+  3. Agrupar las lógicas por familia en el asistente y en editar plataforma
+  4. Registrar las plataformas COMPLIANCE con logica_por_duracion y sus tasas
+  5. (Opcional) evaluar unir COMERCIALES y BP&I en por_duración
+
+PASO 1 — logica_por_duracion (hecho)
+  Minutos = columna DURATION: acepta "30" (minutos) o "00:30:00" (tiempo).
+  Horas de esfuerzo = minutos ÷ 60 × Tasa de Esfuerzo de la plataforma.
+  La tasa es OBLIGATORIA (asistente y editar plataforma no dejan guardar sin ella).
+  Sin valores adivinados: si DURATION está vacía o no es un número, la fila no se
+  cuenta y aparece en Auditoría con el motivo.
+  Dónde se ve:
+    App → Librerías → Plataformas: nueva opción en "tipo de lógica".
+    App → Reporte Plataformas: tabla Editor | MINUTOS | TOTAL (igual que BP&I).
+    Excel platform_report: hoja de la plataforma con el mismo formato que BP&I.
+  NUEVO en Auditoría (pantalla Reporte Plataformas y hoja de auditoría del Excel):
+    "Filas descartadas" ahora dice el MOTIVO por plataforma y cuántas filas.
+    Ej. TQC junio: IBERIA — versión no registrada: "p- F HD Ci3BAFRISCr" (1 fila).
+  Prueba (motor real en Node):
+    TQC junio → Plataformas y Editores idénticos a antes (sin regresión).
+    COMPLIANCE junio con las 8 plataformas en por_duracion → 380 filas, 15,645
+    min, horas por editor 100% iguales al cálculo independiente.
+  HALLAZGO en COMPLIANCE_Junio_2026 (columna DURATION con texto):
+    FAST GLOBAL — "REPROSS" en 21 filas
+    GSN VOD     — "NAN" en 5 filas
+    US NETS     — "NAN" en 4 filas
+    Esas 30 filas NO se cuentan. Hay que decidir si la macro debe traer los
+    minutos reales (¿REPROSS = reproceso?) o si se tratan distinto.
+  También en ese archivo: editor "nan" (5 filas) → el registro de editores lo
+  frenará al cargar; y "cheo/CHEO/Cheo", "celso/CELSO"... se juntan en uno.
+
+PASO 2 — UNA SOLA TASA POR PLATAFORMA (hecho, 26 sep 2026)
+  Regla del usuario: la tasa es la que está en el editor de la librería, y una
+  misma plataforma tiene la MISMA tasa en todos los reportes.
+  Cambios:
+    - Reporte Series: cada fila se calcula con el mismo código que Plataformas y
+      Editores (minutos y horas). Ya no hay "tasa de Serie" aparte.
+    - Se quitó la casilla "📺 Incluir en Reporte Series" y su tasa, en el asistente
+      y en Librerías → Plataformas → Editar. (El 2.75 que tenía COMERCIALES ahí ya
+      no se usa; COMERCIALES usa su tasa 1.25 en todo.)
+  Resultado con TQC junio (filas con SERIE):
+    Series ahora = Editores: 13,200 min y 446.1 h (antes Series daba 212 h con tasa 1).
+    Por plataforma: LATAM 251.9 h, SONY ONE 75.75, AMAZON 64.5, IBERIA 42, VOD 12.
+    Única serie que cambia de minutos: La Llorona (microdrama vertical) 0 → 480 min /
+    14 h: sus 16 filas LATAM con VERSION "TBD" ya se contaban a 30 min (estimado) en
+    Plataformas y Editores; ahora Series coincide. Sigue pendiente decidir TBD.
+    Una fila que Plataformas no cuenta (ej. IBERIA versión no registrada) vale 0 en Series.
+  OJO: las plataformas COMPLIANCE, mientras no estén registradas (paso 4), valen 0 en
+  Series (antes se calculaban con DURATION y tasa 1 inventada).
+
+PENDIENTE REUNIÓN CON TQC — COMERCIALES
+  Aún no se sabe cómo calcular COMERCIALES (hoy: 1.25 h por pieza, sin importar la
+  duración). La columna DURATION trae tiempo (00:00:30:00) y BP&I minutos (10): ambas
+  son duraciones en formatos distintos. Definir en la reunión.
+  BP&I no tiene tasa cargada (hoy usa 1) → cargar su tasa real.
+
+PENDIENTE DESPUÉS DE LA REUNIÓN CON TQC — VALIDACIÓN DEL INPUT AL CARGAR
+  COMPLIANCE_Junio_2026 es un archivo VIEJO (no es el input actual); solo sirvió
+  para probar logica_por_duracion. El input de prueba oficial es:
+    C:\Users\hlugo\Downloads\Test rerpotes\TQC_Junio_2026, Platform, Serie, editor.xlsx
+  Idea a construir: al cargar el input, validar que cada columna traiga datos
+  válidos (ej. DURATION con texto como "REPROSS" o "NAN") y AVISAR antes de
+  continuar, igual que hoy se hace con los editores no registrados. Hoy esas filas
+  solo aparecen después, en Auditoría → "Filas descartadas" con su motivo.
+  Definir las reglas por columna después de la reunión con TQC.
+
+TASAS DE PLATAFORMAS CON VERSIONES EN "EDITAR PLATAFORMA" (26 sep 2026)
+  Problema: en Librerías → Plataformas → ✏️ Editar, LATAM/OFF AIR/VOD/IBERIA no
+  mostraban tasa (las otras lógicas sí), porque su tasa vive en cada categoría.
+  Cambio: al editar esas plataformas ahora aparece la tabla "⚡ Tasas de Esfuerzo
+  (una por categoría)" con Categoría | Duración | Tasa, editable. Se guarda EN la
+  categoría (la misma que se ve en 📂 Categorías) → sigue siendo una sola tasa.
+  No deja guardar una categoría sin tasa.
+  Para revisar: VOD serie 60 min tiene tasa 1 (LATAM/OFF AIR tienen 1.5), y LATAM
+  tiene una categoría "Serie_Accion" 35 min tasa 1 que parece de prueba.
+
+PASO 3 — LÓGICAS ORDENADAS POR FAMILIA (hecho, 28 sep 2026)
+  Una sola lista para todo: src/core/reportEngine/logicaFamilies.js
+    📦 Con versión (columna VERSION) ... logica_de_versiones, iberia_especial
+    🎬 Sin versión (columna SEASON) .... logica_sin_version
+    ⏱ Por duración (columna DURATION) .. logica_por_duracion, logica_bp_i, logica_comerciales
+    🔢 Por conteo (columnas CLIP/SHORT)  logica_youtube
+  Dónde se ve:
+    Librerías → Plataformas → ➕ Nueva Plataforma, paso 1: las opciones salen
+      agrupadas bajo el título de su familia, con qué columna usa.
+    Librerías → Plataformas → ✏️ Editar: la lista "tipo de lógica" agrupada por
+      familia y, debajo, un recuadro que explica la lógica elegida.
+    Librerías → Categorías: sub-pestañas renombradas "📂 Con versión (...)" y
+      "⚡ Tasas Propias (sin versión, por duración y por conteo)".
+  No cambia ningún cálculo (solo cómo se muestran las opciones).
+  COMERCIALES quedó en "Por duración" (lee DURATION), pero sus horas siguen siendo
+  por pieza hasta la reunión con TQC.
+
+SIGUIENTE: PASO 4 — registrar las plataformas COMPLIANCE con logica_por_duracion y
+  sus tasas (las registra el usuario, o pasa las tasas y preparo un respaldo).
+
+PENDIENTES DEL PLAN DE FAMILIAS (28 sep 2026)
+  Paso 4 (registrar plataformas COMPLIANCE) y paso 5 (unir COMERCIALES/BP&I en por
+  duración) quedan PENDIENTES; COMERCIALES espera la reunión con TQC.
+  Se retoma la lista original en el punto #9.
+
+#9 — FORMATO ANTIGUO/NUEVO DE CASILLAS (CERRADO, 28 sep 2026)
+  Qué era: las casillas de SONY ONE/AMAZON (logica_sin_version) tuvieron un formato
+  antiguo (textos + la duración en otros campos de la plataforma). El código revisaba
+  en cada cálculo cuál de los dos formatos venía.
+  Problema real encontrado: al convertir un respaldo ANTIGUO (Restaurar Respaldo), la
+  app pasaba las casillas al formato nuevo pero PERDÍA la duración (quedaban vacías →
+  SONY ONE/AMAZON no habrían contado ninguna fila). Los datos actuales ya estaban en
+  formato nuevo, por eso no se notó.
+  Cambio:
+    - Un solo lugar convierte el formato antiguo: src/core/utils/platformCasillas.js.
+      Conserva la duración y borra los campos viejos (duracion_serie_minutos /
+      duracion_pelicula_minutos) para que no haya dos datos para lo mismo.
+    - Se aplica al Restaurar Respaldo, al exportar el respaldo, y una sola vez a los
+      datos ya guardados en el navegador (migración automática del almacenamiento).
+    - Se quitó el código del formato antiguo del motor, de VersionMatcher y de los
+      formularios de Librerías. Se borró validateAndRepairLibrary (no se usaba).
+  Prueba: TQC junio → Plataformas, Editores y Series IDÉNTICOS a antes. Un respaldo
+  antiguo simulado ahora da los mismos minutos que el actual (2,550 SONY ONE, 2,460
+  AMAZON). El formato antiguo no traía tasas: esas casillas quedan sin tasa.
+  OBSERVACIÓN abierta: si una casilla de sin_version no tiene tasa, el Reporte
+  Editores hoy usa minutos ÷ 60 × tasa de plataforma, y si tampoco hay, usa 1
+  (una tasa no configurada). Contradice "sin valores inventados" → decidir.
+
+DECISIÓN (28 sep 2026): CASILLA SIN TASA = TASA 1
+  El usuario decidió: si una casilla de SONY ONE/AMAZON (serie o película) no tiene
+  tasa, cuenta como 1.
+  Antes: solo daba 1 si NINGUNA de las 2 casillas tenía tasa; si una tenía y la otra
+  no, la que no tenía sumaba 0 horas. Ahora cada casilla sin tasa cuenta con 1.
+  Pantalla: Librerías → Categorías → ⚡ Tasas Propias muestra "⚠ Sin tasa (cuenta 1×)".
+  Prueba: con la librería actual (las 4 casillas tienen tasa) el Reporte Editores da
+  idéntico. Simulando SONY ONE película sin tasa: 59.75 h (antes 51.75 h).
+
+REGLA DE LA TASA (28 sep 2026) — reemplaza la decisión anterior de "casilla sin tasa"
+  La tasa es un % del esfuerzo estándar: 1 = 100% (estándar), 1.5 = 150%,
+  0.75 = 75%, 0.25 = 25%. SIN TASA = ESTÁNDAR = 1, en TODAS las plataformas.
+  Cambios:
+    - Categorías de LATAM/OFF AIR/VOD/IBERIA sin tasa: antes sumaban 0 horas,
+      ahora cuentan con 1. (Casillas SONY ONE/AMAZON y tasa de plataforma ya
+      contaban con 1.)
+    - Se quitaron los bloqueos de "tasa obligatoria" (por_duracion en asistente y
+      editar plataforma; categorías en editar plataforma): vacío = 1.
+    - Pantallas dicen "vacío = 1, el estándar" / "Sin tasa (cuenta 1×, estándar)" /
+      "1× (estándar)" en la lista de Categorías.
+  Prueba: librería actual (todas con tasa) → Reporte Editores idéntico. Simulando
+  LATAM serie 60 sin tasa (50 filas): antes 176.88 h, ahora 226.88 h (+50 h = 50 × 1).
+
+#10 — NÚMEROS INTERNOS (IDs) REPETIDOS (CERRADO, 28 sep 2026)
+  Qué es: cada plataforma, categoría y versión tiene un número interno único (no se
+  ve en pantalla) que la app usa para saber cuál editar o borrar.
+  Hallazgo en la librería real (respaldo 2026-09-25): 47 versiones de VOD compartían
+  número (16 grupos de 2-3). Ej.: LAT_ORI_HD 1 SONY, LAT_ORI_SQZ_HD 4 y
+  LAT_SAP_CC_HD 3 tenían el mismo. Riesgo: en Librerías → 📦 Versiones, editar una
+  cambiaba también las otras (quedaban copias) y borrar una borraba las 3.
+  Los reportes NO estaban afectados (buscan las versiones por nombre).
+  Causa: la función vieja repairVersionIds hacía números demasiado grandes (× 10000,
+  por encima del máximo exacto de JavaScript) → la computadora los redondeaba y
+  varios quedaban iguales. Además el generador normal reiniciaba su contador cada 1000.
+  Cambio (src/store/libraryStore.js):
+    - Generador nuevo: cada número es mayor que el anterior → no se pueden repetir.
+    - Versiones con número repetido o demasiado grande reciben uno nuevo: al
+      Restaurar Respaldo y, una sola vez, en los datos guardados en el navegador.
+      No cambia ningún nombre, categoría ni plataforma.
+    - Se borró repairVersionIds (la que causaba el problema).
+  Prueba (con el código real del almacenamiento):
+    - Respaldo 2026-09-25 → 69 versiones, 0 repetidas, nombres/categorías intactos.
+    - Editar LAT_ORI_SQZ_HD 4 ya solo cambia esa versión.
+    - Crear 2000 versiones de golpe → 0 repetidas.
+    - TQC junio → Plataformas, Editores y Series idénticos.
+    - Datos del navegador en formato viejo (v0 y v1) → convertidos bien.
+  Pendiente menor (no urgente): los ids a veces se comparan como texto y a veces
+  como número (String(...) regados); funciona, solo es desorden.
+  RECOMENDACIÓN: después de abrir la app, descargar un respaldo nuevo de la librería
+  (el del 25 sep tiene los números repetidos; al restaurarlo se repara solo igual).
+
+VERIFICACIÓN CON EL RESPALDO NUEVO (29 sep 2026)
+  Respaldo: Downloads\libreria_tracking_2026-09-29.json (descargado tras la
+  reparación del #10). Input: Downloads\Test repotes\TQC_Junio_2026, ... .xlsx
+  (la carpeta se renombró de "Test rerpotes" a "Test repotes").
+  Respaldo: 9 plataformas, 12 categorías, 69 versiones, 12 editores → 0 números
+  repetidos, 0 referencias rotas, casillas SONY ONE/AMAZON en formato nuevo.
+  Motor de la app vs cálculo independiente hecho aparte:
+    Plataformas 149/149, Series 148/148, Editores 52/54 (las 2 diferencias son
+    solo redondeo al mostrar: 18.75 → 18.8 y 16.25 → 16.3).
+  Totales: Editores 660.96 h (LATAM 251.9 h) · Series 13,200 min / 446.14 h /
+  49 series / 203 filas · BRAZIL 24 series 60 min + 14 películas 120 min.
+  Mismos resultados que antes de los cambios del #9/#10 → TODO OK.
+  Datos que siguen ahí (decisiones pendientes, no errores): COMERCIALES conserva
+  seriesEffortRate 2.75 (ya no se usa); VOD serie 60 con tasa 1; categoría LATAM
+  "Serie_Accion" 35 min; TBD (La Llorona) contado con 30 min estimados; IBERIA
+  "p- F HD Ci3BAFRISCr" no registrada.
+
+#11 — FECHAS (CERRADO, 29 sep 2026)
+  Hallazgo: el input trae APROVED_DATE (columna L) como texto MM/DD/AAAA (mes primero,
+  ej. 06/25/2026), pero la app lo leía con el DÍA primero: 06/01/2026 → 6 de enero,
+  06/15/2026 → "mes 15" → marzo 2027, sin avisar. Resultado: filtrar junio daba 0
+  ítems y filtrar enero daba 23. Los reportes salían bien solo porque se generaban con
+  "Todos los registros". Además la lectura de fechas estaba copiada en 3 lugares.
+  Decisiones del usuario:
+    - El formato es MM/DD/AAAA.
+    - Toda fila tiene que traer fecha; si no trae, avisar en la Auditoría.
+    - El filtro de fecha viene de entrada en "Todos los registros".
+  Cambios:
+    - src/core/utils/dateUtils.js: ÚNICA lectura de fechas. Acepta MM/DD/AAAA, fecha
+      real de Excel y AAAA-MM-DD (selectores). Una fecha imposible (02/30/2026,
+      25/06/2026, 13/01/2026) o vacía NO se corrige: queda como "no válida".
+    - Motores Plataformas/Editores y Series usan esa función (se quitaron sus copias).
+    - Auditoría (Reporte Plataformas, pantalla y hoja de auditoría del Excel): sección
+      nueva "📅 Filas sin fecha de aprobación válida (MM/DD/AAAA)" con el valor que vino
+      y cuántas filas. Con "Todos los registros" esas filas se cuentan igual; con un
+      rango quedan fuera y aparecen en "Filas descartadas" con su motivo.
+    - Reportes Editores y Series: aviso rojo arriba si hay filas sin fecha válida.
+    - Plataformas y Editores arrancan en "Todos los registros" (Series ya lo hacía).
+    - EditorReportsEngine.js: prototipo viejo, NO se usa (tenía la 3ª copia). No se
+      borró (sin git, no se puede deshacer); queda para la limpieza del #12.
+  Prueba con TQC junio:
+    - "Todos los registros": Plataformas, Editores y Series idénticos a antes.
+    - Tu input: 0 filas sin fecha válida.
+    - Junio 1-30 → 383 filas (a mano 383), Series 203. 1-5 jun → 101 (a mano 101).
+      15 jun → 4 (a mano 4). Enero → 0.
+    - Simulando 3 fechas malas ("", 25/06/2026, 02/30/2026): Auditoría las lista;
+      con "todos" se cuentan (382 ítems), con junio quedan fuera (379) y aparecen en
+      descartes con su motivo.
+  Ajuste (29 sep): el "Período" de los 3 reportes (pantalla y Excel) se mostraba
+  AAAA-MM-DD (2026-06-01 → 2026-06-26); ahora sale MM/DD/AAAA (06/01/2026 →
+  06/26/2026), igual que el input. Función formatPeriod en dateUtils.js.

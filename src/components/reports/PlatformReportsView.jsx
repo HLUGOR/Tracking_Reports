@@ -12,9 +12,22 @@ import { buildCategoryLabel } from '../../core/utils/categoryLabel';
 import useTranslation from '../../i18n/useTranslation';
 import { translate } from '../../i18n/translations';
 import './PlatformReportsView.css';
+import { formatPeriod } from '../../core/utils/dateUtils';
 
 // El Excel exportado SIEMPRE va en inglés, sin importar el idioma activo en pantalla.
 const e = (text) => translate(text, 'en');
+
+// Una línea del desglose de filas no contadas: "GSN VOD — DURATION no es un número de
+// minutos: "REPROSS", "NAN" (12 filas)". tr = traductor (pantalla: t; Excel: e).
+const formatDiscardReason = (d, tr) => {
+  const vals = d.values?.length ? `: ${d.values.map((v) => `"${v}"`).join(', ')}` : '';
+  const who = d.platform ? `${d.platform} — ` : '';
+  return `${who}${tr(d.motivo)}${vals} (${d.count} ${tr(d.count === 1 ? 'fila' : 'filas')})`;
+};
+
+// Una línea del aviso de fechas: "vacía (3 filas)" o ""25/06/2026" (2 filas)".
+const formatInvalidDate = (d, tr) =>
+  `${d.value === '' ? tr('vacía') : `"${d.value}"`} (${d.count} ${tr(d.count === 1 ? 'fila' : 'filas')})`;
 
 // Formatea minutos a entero
 function formatMinutes(mins) {
@@ -62,9 +75,11 @@ function PlatformReportsView() {
 
   const [startDate, setStartDate] = useState(monthAgo);
   const [endDate, setEndDate]     = useState(today);
-  const [dateField, setDateField] = useState('approved_date');
+  const [dateField, setDateField] = useState('all');
 
   const [reportData, setReportData] = useState(null);
+  // Filas cuya fecha de aprobación falta o no es MM/DD/AAAA válida (auditoría)
+  const invalidDatesTotal = (reportData?.audit?.invalidApprovedDates || []).reduce((s, d) => s + d.count, 0);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState(null);
 
@@ -122,7 +137,7 @@ function PlatformReportsView() {
 
     const periodoStr = dateField === 'all'
       ? e('Todos los registros')
-      : `${startDate} → ${endDate}`;
+      : formatPeriod(startDate, endDate);
 
     // ── Paleta de colores ──────────────────────────────────────────────────
     const COLOR = {
@@ -234,8 +249,8 @@ function PlatformReportsView() {
         continue;
       }
 
-      // ── BP&I ───────────────────────────────────────────────────────────────
-      if (plt.logica === 'logica_bp_i') {
+      // ── BP&I y por duración ───────────────────────────────────────────────────────────
+      if (plt.logica === 'logica_bp_i' || plt.logica === 'logica_por_duracion') {
         ws.columns = [
           { width: 28 }, { width: 14 }, { width: 12 },
         ];
@@ -400,33 +415,29 @@ function PlatformReportsView() {
     // ── Hoja RESUMEN ───────────────────────────────────────────────────────
     const wsRes = wb.addWorksheet(e('Resumen'));
 
-    // Recopilar todas las categorías (solo plataformas con categorías; las sin categorías como COMERCIALES y BP&I no tienen)
-    const allCatKeys = [];
-    const allCatLabelMap = {};
-    reportData.platforms.forEach((plt) => {
-      
-      (plt.categories || []).forEach((cat) => {
-        if (!allCatKeys.includes(cat.category_key)) {
-          allCatKeys.push(cat.category_key);
-          allCatLabelMap[cat.category_key] = buildCategoryLabel(cat);
-        }
+    // Una columna por tipo de contenido (nombre + duración), juntando todas las
+    // plataformas: cada plataforma tiene su propia categoría "serie (60 min)" en la
+    // librería, pero en el resumen deben sumar en la misma columna. Solo se incluyen
+    // tipos con al menos un ítem en el período (sin columnas llenas de ceros).
+    const summaryCols = {}; // clave en minúsculas → { label, duration, unregistered }
+    const countsByPlatform = reportData.platforms.map((plt) => {
+      const counts = {};
+      Object.entries(plt.totalByCategory).forEach(([key, val]) => {
+        if (!val.count) return;
+        const def = (plt.categories || []).find((c) => c.category_key === key);
+        const label = def ? buildCategoryLabel(def) : String(key);
+        const colKey = label.toLowerCase();
+        summaryCols[colKey] ??= { label, duration: def?.duration_minutes || 0, unregistered: key === 'unregistered' };
+        counts[colKey] = (counts[colKey] || 0) + val.count;
       });
-      Object.keys(plt.totalByCategory).forEach((key) => {
-        if (!allCatKeys.includes(key)) allCatKeys.push(key);
-      });
+      return counts;
     });
-    const sortedAllCats = [
-      ...allCatKeys
-        .filter((c) => c !== 'unregistered')
-        .sort((a, b) => {
-          // Buscar duration_minutes de cada clave en cualquier plataforma
-          const durA = reportData.platforms.flatMap(p => p.categories || []).find(c => c.category_key === a)?.duration_minutes || 0;
-          const durB = reportData.platforms.flatMap(p => p.categories || []).find(c => c.category_key === b)?.duration_minutes || 0;
-          return durA - durB;
-        }),
-      ...allCatKeys.filter((c) => c === 'unregistered'),
-    ];
-    const allCatLabels = sortedAllCats.map((k) => allCatLabelMap[k] || k);
+    const sortedAllCats = Object.keys(summaryCols).sort((a, b) =>
+      (summaryCols[a].unregistered - summaryCols[b].unregistered)
+      || (summaryCols[a].duration - summaryCols[b].duration)
+      || summaryCols[a].label.localeCompare(summaryCols[b].label)
+    );
+    const allCatLabels = sortedAllCats.map((k) => summaryCols[k].label);
     const totalResumen = 1 + sortedAllCats.length + 2;
     const lastResCol = String.fromCharCode(64 + totalResumen);
 
@@ -460,7 +471,7 @@ function PlatformReportsView() {
     applyHeaderCell(resHdr.getCell(3 + sortedAllCats.length), e('Total'), COLOR.headerGreen);
 
     reportData.platforms.forEach((plt, idx) => {
-      const catCounts = sortedAllCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
+      const catCounts = sortedAllCats.map((col) => countsByPlatform[idx][col] || 0);
       // Para COMERCIALES los minutos se calculan desde segundos
       const plMinutes = plt.logica === 'logica_comerciales'
         ? Math.round(plt.totalSeconds / 60)
@@ -474,8 +485,8 @@ function PlatformReportsView() {
     });
 
     // Gran total resumen (todas las plataformas)
-    const grandCatCounts = sortedAllCats.map((cat) =>
-      reportData.platforms.reduce((s, p) => s + (p.totalByCategory[cat]?.count || 0), 0)
+    const grandCatCounts = sortedAllCats.map((col) =>
+      countsByPlatform.reduce((s, counts) => s + (counts[col] || 0), 0)
     );
     const resumenGrandMinutes = reportData.platforms.reduce((s, p) =>
       s + (p.logica === 'logica_comerciales' ? p.totalSeconds / 60 : p.totalMinutes), 0
@@ -518,9 +529,18 @@ function PlatformReportsView() {
     addAuditSection(e('🚫 Plataformas no registradas (descartadas):'), reportData.audit.unregisteredPlatforms, e('✅ Todas registradas'));
     addAuditSection(e('⚠️ Versiones no registradas — CONTADAS con duración estimada:'), reportData.audit.unregisteredVersionsFallback, e('✅ Todas registradas'));
     addAuditSection(e('🔴 Versiones no registradas — EXCLUIDAS del reporte (0 minutos, sin fallback posible):'), reportData.audit.unregisteredVersionsDiscarded, e('✅ Todas registradas'));
+    addAuditSection(
+      e('📅 Filas sin fecha de aprobación válida (MM/DD/AAAA)'),
+      (reportData.audit.invalidApprovedDates || []).map((d) => formatInvalidDate(d, e)),
+      e('✅ Todas las filas traen fecha de aprobación')
+    );
     const discRow = wsAudit.addRow([e('Filas descartadas (total):'), reportData.audit.discardedCount]);
     discRow.getCell(1).font = fontBold;
     discRow.getCell(2).font = { ...fontBold, color: { argb: 'FFB91C1C' } };
+    (reportData.audit.discardedByReason || []).forEach((d) => {
+      const r = wsAudit.addRow(['', formatDiscardReason(d, e)]);
+      r.getCell(2).font = { name: 'Calibri', size: 10, color: { argb: 'FF92400E' } };
+    });
 
     // ── Descargar ──────────────────────────────────────────────────────────
     const buffer = await wb.xlsx.writeBuffer();
@@ -611,7 +631,7 @@ function PlatformReportsView() {
               🗓 {t('Período:')}{' '}
               {dateField === 'all'
                 ? t('Todos los registros')
-                : `${startDate} → ${endDate}`}
+                : formatPeriod(startDate, endDate)}
             </span>
             <span>🎬 {t('Total registros procesados:')} <strong>{rows.length - reportData.audit.discardedCount}</strong></span>
             <span>⏱ {t('Total minutos:')} <strong>{formatMinutes(reportData.grandTotal.minutes)}</strong></span>
@@ -679,7 +699,7 @@ function PlatformReportsView() {
                             </tr>
                           </tfoot>
                         </table>
-                      ) : plt.logica === 'logica_bp_i' ? (
+                      ) : (plt.logica === 'logica_bp_i' || plt.logica === 'logica_por_duracion') ? (
                         <table className="pr-cat-table pr-bp-i-table">
                           <thead>
                             <tr>
@@ -880,12 +900,40 @@ function PlatformReportsView() {
                 )}
               </div>
 
+              {/* Fecha de aprobación faltante o no válida */}
+              <div className="pr-audit-block">
+                <h4 style={invalidDatesTotal > 0 ? { color: '#b91c1c' } : undefined}>
+                  📅 {t('Filas sin fecha de aprobación válida (MM/DD/AAAA)')} ({invalidDatesTotal})
+                </h4>
+                {invalidDatesTotal === 0 ? (
+                  <p className="pr-audit-ok">✅ {t('Todas las filas traen fecha de aprobación')}</p>
+                ) : (
+                  <>
+                    <p className="pr-audit-info">
+                      {t('Con "Todos los registros" se cuentan igual; con un rango de fechas quedan fuera porque no se pueden ubicar.')}
+                    </p>
+                    <ul>
+                      {reportData.audit.invalidApprovedDates.map((d) => (
+                        <li key={d.value}>{formatInvalidDate(d, t)}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+
               {/* Filas descartadas */}
               <div className="pr-audit-block">
                 <h4>🗑 {t('Filas descartadas:')} {reportData.audit.discardedCount}</h4>
                 <p className="pr-audit-info">
-                  {t('Filas excluidas por fecha fuera de rango, plataforma no registrada (en el modo IBERIA) o versión sin categoría válida.')}
+                  {t('Filas que no suman minutos ni horas a ningún editor. Motivo de cada una:')}
                 </p>
+                {(reportData.audit.discardedByReason || []).length > 0 && (
+                  <ul>
+                    {reportData.audit.discardedByReason.map((d) => (
+                      <li key={`${d.platform}|${d.motivo}`}>{formatDiscardReason(d, t)}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           </div>

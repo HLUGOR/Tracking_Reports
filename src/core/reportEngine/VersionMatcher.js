@@ -26,7 +26,9 @@ class VersionMatcher {
   static normalizeEditorName(name) {
     const trimmed = (name || 'Sin asignar').trim();
     if (!trimmed) return 'Sin asignar';
-    return trimmed.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+    // \b\w no reconoce letras acentuadas como parte de la palabra ("jesús" → "JesúS");
+    // se usa \p{L} para capitalizar solo la primera letra de cada palabra.
+    return trimmed.toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, sp, c) => sp + c.toUpperCase());
   }
 
   /**
@@ -169,9 +171,8 @@ class VersionMatcher {
    * season != '0' y no vacío → primera categoría (serie)
    * season = '0' o vacío    → segunda categoría (película)
    *
-   * Soporta dos formatos:
-   * 1. Antiguo: categorias = ['serie_45min', 'pelicula_120min'], duracion_serie_minutos: 45, duracion_pelicula_minutos: 120
-   * 2. Nuevo:  categorias = [{key: 'serie_45min', duration: 45}, {key: 'pelicula_120min', duration: 120}]
+   * categorias = [{key, duration, effortRate}, ...]: primera = serie, segunda = película.
+   * (El formato antiguo de strings se convierte al cargar los datos: utils/platformCasillas.js)
    *
    * SIN valores por defecto: si la categoría correspondiente no tiene una duración
    * configurada (> 0), no se adivina ningún número — se devuelve registered: false
@@ -186,21 +187,9 @@ class VersionMatcher {
     const isPelicula = season === '' || season === '0';
 
     const cats = platformConfig?.categorias || [];
-    const isNewFormat = cats.length > 0 && typeof cats[0] === 'object';
-
-    let key, duration;
-    if (isNewFormat) {
-      // Nuevo formato: array de objetos {key, duration}. Primera = serie, segunda = película.
-      const cat = isPelicula ? cats[1] : cats[0];
-      key = cat?.key;
-      duration = Number(cat?.duration) || 0;
-    } else {
-      // Formato antiguo: array de strings directos (migración)
-      key = isPelicula ? cats[1] : cats[0];
-      duration = Number(isPelicula
-        ? platformConfig?.duracion_pelicula_minutos
-        : platformConfig?.duracion_serie_minutos) || 0;
-    }
+    const cat = isPelicula ? cats[1] : cats[0];
+    const key = cat?.key;
+    const duration = Number(cat?.duration) || 0;
 
     if (duration <= 0) {
       return { category_key: null, duration_minutes: 0, registered: false, subPlatform: null };

@@ -11,12 +11,15 @@
  *   - iberia_especial     : igual que logica_de_versiones, pero sin fallback (si no está registrada, no cuenta)
  *   - logica_comerciales  : suma DURATION en timecode (HH:MM:SS), cuenta assets
  *   - logica_bp_i         : suma MINUTOS netos (números simples), cuenta assets
+ *   - logica_por_duracion : suma DURATION (minutos o tiempo HH:MM:SS), cuenta assets;
+ *                           horas = minutos ÷ 60 × tasa de la plataforma (COMPLIANCE)
  *
  * Columnas esperadas del Excel (post-mapeo por ColumnMapper):
  *   EDITOR, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE, DURATION (comerciales), MINUTOS (bp&i)
  */
 
 import VersionMatcher from './VersionMatcher';
+import { parseInputDate, approvedDateOf } from '../utils/dateUtils';
 
 // Lógica por defecto para plataformas no configuradas explícitamente
 const DEFAULT_LOGICA = 'logica_de_versiones';
@@ -42,7 +45,7 @@ class PlatformReportsEngine {
     );
 
     // Construir mapa de configuración: primero las de libraryStore, fallback a DEFAULT
-    // Las plataformas en libraryStore tienen: { name, logica, duracion_serie_minutos, duracion_pelicula_minutos, categorias }
+    // Las plataformas en libraryStore tienen: { name, logica, categorias, ... }
     const plataformaConfig = {};
     platforms.forEach((p) => {
       const key = (p.name || '').trim().toUpperCase();
@@ -99,8 +102,11 @@ class PlatformReportsEngine {
     };
 
     // Parsear fechas límite
-    const start = startDate instanceof Date ? startDate : new Date(startDate);
-    const end = endDate instanceof Date ? endDate : new Date(endDate + 'T23:59:59');
+    // Parsear fechas límite (AAAA-MM-DD de los selectores de la pantalla). Fin = último
+    // instante de ese día.
+    const start = parseInputDate(startDate);
+    const endDay = parseInputDate(endDate);
+    const end = endDay ? new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate(), 23, 59, 59, 999) : null;
 
     // Conjuntos de auditoría.
     // Separados a propósito: "fallback" SÍ suma minutos al editor (duración adivinada),
@@ -110,7 +116,15 @@ class PlatformReportsEngine {
     const unregisteredVersionsFallback = new Set();
     const unregisteredVersionsDiscarded = new Set();
     const unregisteredPlatforms = new Set();
+    // Filas cuya APPROVED_DATE está vacía o no es una fecha MM/DD/AAAA válida.
+    // valor tal como vino → cantidad de filas
+    const invalidApprovedDates = {};
     const discardedRows = [];
+    // Registra una fila no contada con su motivo (para el desglose de la auditoría).
+    // motivo: texto fijo en español (se traduce en la vista); value: dato de la fila que lo causó.
+    const discard = (row, platform, motivo, value = '') => {
+      discardedRows.push({ row, platform, motivo, value });
+    };
 
     // Mapa principal: platform → editor → category → { count, minutes }
     const platformMap = {};
@@ -121,24 +135,36 @@ class PlatformReportsEngine {
       const version = String(row.version || row.VERSION || '').trim();
       const platform = String(row.platform || row.PLATFORM || '').trim().toUpperCase();
       const season = String(row.season || row.SEASON || '').trim();
-      // ── Filtro por fecha (usa dateField: por defecto APPROVED_DATE) ────────
-      // dateField puede ser: 'approved_date', 'air_date', o 'all' (sin filtro)
-      let passesDateFilter = true;
-      if (dateField !== 'all') {
-        const dateRaw = row[dateField] || row[dateField.toUpperCase()] || '';
-        const rowDate = this.parseDate(dateRaw);
-        passesDateFilter = rowDate && rowDate >= start && rowDate <= end;
+      // ── Fecha de aprobación: toda fila debe traerla (MM/DD/AAAA) ───────────
+      // Si falta o no es válida se anota en la auditoría. Con "Todos los registros" la
+      // fila se cuenta igual; con un rango de fechas no se puede ubicar y queda fuera.
+      const approvedRaw = approvedDateOf(row);
+      if (!parseInputDate(approvedRaw)) {
+        const shown = String(approvedRaw ?? '').trim();
+        invalidApprovedDates[shown] = (invalidApprovedDates[shown] || 0) + 1;
       }
-      if (!passesDateFilter) return;
+
+      // ── Filtro por fecha ('approved_date', 'air_date' o 'all' = sin filtro) ──
+      if (dateField !== 'all') {
+        const dateRaw = dateField === 'approved_date'
+          ? approvedRaw
+          : (row[dateField] ?? row[dateField.toUpperCase()] ?? '');
+        const rowDate = parseInputDate(dateRaw);
+        if (!rowDate) {
+          discard(row, platform, 'sin fecha válida (no se puede ubicar en el rango)', String(dateRaw ?? '').trim());
+          return;
+        }
+        if (!start || !end || rowDate < start || rowDate > end) return;
+      }
 
       // ── Validar plataforma ────────────────────────────────────────────────
       if (!platform) {
-        discardedRows.push({ row, reason: 'PLATFORM vacío' });
+        discard(row, '', 'PLATFORM vacío');
         return;
       }
       if (!validPlatforms.has(platform)) {
         unregisteredPlatforms.add(platform);
-        discardedRows.push({ row, reason: `PLATFORM no registrada: ${platform}` });
+        discard(row, platform, 'plataforma no registrada');
         return;
       }
 
@@ -155,7 +181,9 @@ class PlatformReportsEngine {
         // configurada, no se adivina — se descarta y queda visible en auditoría.
         classified = VersionMatcher.classifyBySeason(season, cfg);
         if (!classified.registered) {
-          discardedRows.push({ row, reason: `${platform}: categoría de ${season === '' || season === '0' ? 'película' : 'serie'} sin duración configurada` });
+          discard(row, platform, season === '' || season === '0'
+            ? 'categoría de película sin duración configurada'
+            : 'categoría de serie sin duración configurada');
           return;
         }
       } else if (logica === 'iberia_especial') {
@@ -164,7 +192,7 @@ class PlatformReportsEngine {
         classified = VersionMatcher.classifyIberia(version, versions, categories, cfg?.id);
         if (!classified.registered) {
           unregisteredVersionsDiscarded.add(version);
-          discardedRows.push({ row, reason: `IBERIA: versión no registrada: ${version}` });
+          discard(row, platform, 'versión no registrada', version);
           return;
         }
       } else if (logica === 'logica_comerciales') {
@@ -208,6 +236,26 @@ class PlatformReportsEngine {
           duration_seconds: 0, // no aplica para BP&I
           isBPI: true,
         };
+      } else if (logica === 'logica_por_duracion') {
+        // Lógica por duración (plataformas digitales tipo COMPLIANCE): los minutos salen
+        // de la columna DURATION, en minutos ("30") o en tiempo ("00:30:00" / "00:30:00:00").
+        // Sin valor por defecto: si DURATION está vacía o en 0, la fila no se cuenta y
+        // queda en la auditoría.
+        const durationRaw = String(row.duration || row.DURATION || '').trim();
+        const minutes = durationRaw.includes(':')
+          ? PlatformReportsEngine.parseTimecode(durationRaw) / 60
+          : (parseFloat(durationRaw) || 0);
+        if (minutes <= 0) {
+          if (durationRaw) discard(row, platform, 'DURATION no es un número de minutos', durationRaw);
+          else discard(row, platform, 'sin DURATION');
+          return;
+        }
+        classified = {
+          category_key: null,
+          duration_minutes: minutes,
+          duration_seconds: 0,
+          isPorDuracion: true,
+        };
       } else {
         // logica_de_versiones: buscar en librería primero.
         // Si no está → fallback numérico por sufijo (replica Tracking_Project).
@@ -240,7 +288,10 @@ class PlatformReportsEngine {
       // Si ya coincide con una categoría de la plataforma → la deja igual.
       // Si no hay match → usa la key cruda (solo afecta a esa plataforma).
       // Pasa 'platform' como fallback: si BRAZIL no tiene categorías, usa las de LATAM
-      const category_key = resolveCategoryForPlatform(rawCategoryKey, duration_minutes, effectivePlatform, platform);
+      // por_duracion no usa categorías: los minutos van directo al total del editor.
+      const category_key = classified.isPorDuracion
+        ? null
+        : resolveCategoryForPlatform(rawCategoryKey, duration_minutes, effectivePlatform, platform);
 
       // ── Acumular en platformMap ───────────────────────────────────────────
       if (!platformMap[effectivePlatform]) platformMap[effectivePlatform] = {};
@@ -253,7 +304,7 @@ class PlatformReportsEngine {
           totalSeconds: 0,
         };
       }
-      // Para logica_comerciales y logica_bp_i no acumulamos por categoría (category_key es null)
+      // Para logica_comerciales, logica_bp_i y logica_por_duracion no acumulamos por categoría (category_key es null)
       // Para logica_youtube acumulamos CLIPS y SHORTS en byCategory
       if (classified.isYoutube) {
         if (!platformMap[effectivePlatform][editor].byCategory['clips']) {
@@ -305,18 +356,12 @@ class PlatformReportsEngine {
         let categoriesResult;
 
         if (logica === 'logica_sin_version') {
-          // Categorías vienen de la config estática, no del store.
-          // cfg.categorias = ['serie_45min', 'pelicula_120min'] (formato antiguo)
-          const cfgCats = cfg?.categorias || [];
-          const durSerie = cfg?.duracion_serie_minutos || 45;
-          const durPelicula = cfg?.duracion_pelicula_minutos || 120;
-          categoriesResult = cfgCats.map((cat, idx) => {
-            const isLast = idx === cfgCats.length - 1;
-            const dur = isLast ? durPelicula : durSerie;
-            // Extraer nombre legible: 'serie_45min' → 'serie', 'pelicula_120min' → 'pelicula'
-            const name = String(cat).replace(/_\d+min$/i, '').replace(/_/g, ' ');
-            return { category_key: cat, label: name, duration_minutes: dur, color: '#ccc' };
-          });
+          // Categorías de la propia plataforma: [0] = serie, [1] = película, objetos
+          // {key, duration, effortRate}. La clave es el texto de la casilla (el mismo que usa
+          // classifyBySeason en byCategory).
+          categoriesResult = (cfg?.categorias || []).slice(0, 2).map((cat) => ({
+            category_key: cat.key, label: cat.key, duration_minutes: Number(cat.duration) || 0, color: '#ccc',
+          }));
         } else {
           // Categorías del store (logica_de_versiones, iberia_especial, etc.)
           const subPlatformParent = { 'BRAZIL': 'LATAM', 'LATAM': 'LATAM' };
@@ -354,23 +399,51 @@ class PlatformReportsEngine {
         unregisteredVersionsFallback: [...unregisteredVersionsFallback],
         unregisteredVersionsDiscarded: [...unregisteredVersionsDiscarded],
         unregisteredPlatforms: [...unregisteredPlatforms],
+        // [{ value: 'texto que vino' ('' = vacía), count }]
+        invalidApprovedDates: Object.entries(invalidApprovedDates)
+          .map(([value, count]) => ({ value, count }))
+          .sort((a, b) => b.count - a.count),
         discardedCount: discardedRows.length,
+        // Desglose: [{ platform, motivo, count, values: [hasta 10 valores distintos] }]
+        discardedByReason: Object.values(discardedRows.reduce((acc, d) => {
+          const k = `${d.platform}|${d.motivo}`;
+          if (!acc[k]) acc[k] = { platform: d.platform, motivo: d.motivo, count: 0, values: [] };
+          acc[k].count++;
+          if (d.value && acc[k].values.length < 10 && !acc[k].values.includes(d.value)) acc[k].values.push(d.value);
+          return acc;
+        }, {})).sort((a, b) => b.count - a.count),
       },
       generatedAt: new Date().toISOString(),
     };
   }
 
   /**
-   * Parsea una cadena de fecha a Date.
-   * Soporta: YYYY-MM-DD, DD/MM/YYYY, ISO con hora, número serial de Excel.
-   * @param {string|number} dateStr
-   * @returns {Date|null}
-   */
-  /**
    * Parsea un timecode HH:MM:SS o HH:MM:SS:FF a segundos totales.
    * @param {string} tc - timecode (ej: "00:01:30:00" o "00:01:30")
    * @returns {number} segundos totales
    */
+  /**
+   * Minutos y horas de esfuerzo de UNA fila, calculados con exactamente el mismo código
+   * que los Reportes Plataformas y Editores. Lo usa el Reporte Series para que una fila
+   * valga lo mismo en los tres reportes: una plataforma tiene una sola tasa, la de la
+   * librería, en cualquier reporte.
+   * Una fila que esos reportes no cuentan (plataforma no registrada, versión IBERIA no
+   * registrada, sin duración...) devuelve 0 minutos y 0 horas.
+   * @returns {{ minutes: number, hours: number }}
+   */
+  static evaluateRow(row, library) {
+    const rep = this.buildReport([row], null, null, library, 'all');
+    const plt = rep.platforms[0];
+    if (!plt) return { minutes: 0, hours: 0 };
+    const minutes = plt.logica === 'logica_comerciales' ? plt.totalSeconds / 60 : plt.totalMinutes;
+    const eff = this.buildEffortReport(rep, library, 192);
+    // Suma sin redondear (totalHours viene redondeado a 1 decimal para mostrar)
+    const hours = eff.editors.reduce(
+      (s, ed) => s + Object.values(ed.byGroup).reduce((a, h) => a + h, 0), 0
+    );
+    return { minutes, hours };
+  }
+
   static parseTimecode(tc) {
     if (!tc) return 0;
     const parts = String(tc).trim().split(':');
@@ -390,8 +463,8 @@ class PlatformReportsEngine {
    *       Horas = Σ(count_categoría × effortRate_categoría)
    *   - logica_comerciales:
    *       Horas = totalSeconds / 3600
-   *   - logica_bp_i:
-   *       Horas = totalMinutes / 60
+   *   - logica_bp_i / logica_por_duracion:
+   *       Horas = totalMinutes / 60 × platformEffortRate
    *   - logica_youtube:
    *       Horas = totalCount (1 hora por clip/short, sin effortRate)
    *
@@ -403,35 +476,42 @@ class PlatformReportsEngine {
   static buildEffortReport(platformResult, library, baseHours = 192) {
     const { platforms: libPlatforms = [], categories: libCategories = [] } = library;
 
+    // Regla del negocio: la tasa es un % del esfuerzo estándar (1 = 100%, 1.5 = 150%,
+    // 0.75 = 75%). Sin tasa configurada = estándar = 1, en cualquier lógica.
+    const rateOrStandard = (v) => {
+      const r = parseFloat(v);
+      return !isNaN(r) && r > 0 ? r : 1;
+    };
+
     // categoryId (string) → { effortRate, durationHours }
     const categoryInfoMap = {};
     libCategories.forEach((c) => {
-      const rate = parseFloat(c.effortRate);
       const dur = Number(c.duration) || 0;
-      if (!isNaN(rate) && rate > 0) {
-        categoryInfoMap[String(c.id)] = { effortRate: rate, durationHours: dur / 60 };
-      }
+      categoryInfoMap[String(c.id)] = { effortRate: rateOrStandard(c.effortRate), durationHours: dur / 60 };
     });
 
-    // platformName → { effortGroup, logica, platformEffortRate, categoryKeyRateMap }
+    // platformName → { effortGroup, logica, platformEffortRate, rateMap }
     const platCfgMap = {};
     libPlatforms.forEach((p) => {
       const name = (p.name || '').trim().toUpperCase();
-      const rawRate = parseFloat(p.platformEffortRate);
-      // Para logica_sin_version: mapa key → { effortRate, durationHours } desde p.categorias
+      // Para logica_sin_version: mapa key → { effortRate, durationHours } desde p.categorias.
+      // Cada casilla sin tasa cuenta con el estándar (1).
       const categoryKeyRateMap = {};
       (p.categorias || []).forEach((cat) => {
-        const rate = parseFloat(cat.effortRate);
         const dur = Number(cat.duration) || 0;
-        if (cat.key && !isNaN(rate) && rate > 0) {
-          categoryKeyRateMap[cat.key] = { effortRate: rate, durationHours: dur / 60 };
+        if (cat.key) {
+          categoryKeyRateMap[cat.key] = { effortRate: rateOrStandard(cat.effortRate), durationHours: dur / 60 };
         }
       });
       platCfgMap[name] = {
         effortGroup: (p.effortGroup || '').trim() || 'OTROS',
         logica: p.logica || 'logica_de_versiones',
-        platformEffortRate: !isNaN(rawRate) && rawRate > 0 ? rawRate : 1,
-        categoryKeyRateMap,
+        platformEffortRate: rateOrStandard(p.platformEffortRate),
+        // Un solo mapa de tarifas por plataforma: las claves de byCategory son ids de
+        // categoría (logica_de_versiones / iberia_especial) o el texto de la casilla
+        // (logica_sin_version). Nunca coinciden entre sí, así que se pueden buscar en
+        // el mismo mapa sin tener que decidir de antemano según la lógica.
+        rateMap: { ...categoryInfoMap, ...categoryKeyRateMap },
       };
     });
 
@@ -456,8 +536,8 @@ class PlatformReportsEngine {
     (platformResult.platforms || []).forEach((plt) => {
       const platName = (plt.platform || '').trim().toUpperCase();
       const parentName = subPlatformParentMap[platName];
-      const cfg = platCfgMap[platName] || (parentName ? platCfgMap[parentName] : null) || { effortGroup: 'OTROS', logica: 'logica_de_versiones', platformEffortRate: 1, categoryKeyRateMap: {} };
-      const { effortGroup, logica, platformEffortRate, categoryKeyRateMap } = cfg;
+      const cfg = platCfgMap[platName] || (parentName ? platCfgMap[parentName] : null) || { effortGroup: 'OTROS', logica: 'logica_de_versiones', platformEffortRate: 1, rateMap: categoryInfoMap };
+      const { effortGroup, logica, platformEffortRate, rateMap } = cfg;
 
       plt.editors.forEach((ed) => {
         if (!editorMap[ed.editor]) {
@@ -470,27 +550,16 @@ class PlatformReportsEngine {
         let hours = 0;
         if (logica === 'logica_comerciales') {
           hours = (ed.totalCount || 0) * platformEffortRate;
-        } else if (logica === 'logica_bp_i') {
+        } else if (logica === 'logica_bp_i' || logica === 'logica_por_duracion') {
           hours = ((ed.totalMinutes || 0) / 60) * platformEffortRate;
         } else if (logica === 'logica_youtube') {
           hours = (ed.totalCount || 0) * platformEffortRate;
-        } else if (logica === 'logica_sin_version') {
-          // count × (duracion_min / 60) × effortRate por cada key
-          Object.entries(ed.byCategory || {}).forEach(([catKey, catData]) => {
-            const info = categoryKeyRateMap[catKey];
-            if (info != null) hours += (catData.count || 0) * info.durationHours * info.effortRate;
-          });
-          // Fallback: si no hay tasas por key, usar totalMinutes × platformEffortRate
-          if (hours === 0 && Object.keys(categoryKeyRateMap).length === 0) {
-            hours = ((ed.totalMinutes || 0) / 60) * platformEffortRate;
-          }
         } else {
-          // logica_de_versiones, iberia_especial: count × (duracion_min / 60) × effortRate
-          Object.entries(ed.byCategory || {}).forEach(([catId, catData]) => {
-            const info = categoryInfoMap[String(catId)];
-            if (info != null) {
-              hours += (catData.count || 0) * info.durationHours * info.effortRate;
-            }
+          // logica_de_versiones, iberia_especial, logica_sin_version:
+          // count × (duracion_min / 60) × effortRate, buscando en el mapa único de tarifas.
+          Object.entries(ed.byCategory || {}).forEach(([catKey, catData]) => {
+            const info = rateMap[String(catKey)];
+            if (info != null) hours += (catData.count || 0) * info.durationHours * info.effortRate;
           });
         }
 
@@ -514,35 +583,6 @@ class PlatformReportsEngine {
       .sort((a, b) => b.totalHours - a.totalHours);
 
     return { editors, effortGroups, baseHours };
-  }
-
-  static parseDate(dateStr) {
-    if (!dateStr && dateStr !== 0) return null;
-
-    // Número serial de Excel (días desde 1/1/1900)
-    if (typeof dateStr === 'number') {
-      const excelEpoch = new Date(1899, 11, 30);
-      return new Date(excelEpoch.getTime() + dateStr * 86400000);
-    }
-
-    const s = String(dateStr).trim();
-    if (!s) return null;
-
-    // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00');
-
-    // DD/MM/YYYY
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
-      const [day, month, year] = s.split('/');
-      return new Date(year, month - 1, day);
-    }
-
-    // ISO con hora
-    if (s.includes('T')) return new Date(s);
-
-    // Intento genérico
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? null : d;
   }
 }
 

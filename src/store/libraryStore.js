@@ -5,10 +5,32 @@
 
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
+import { normalizePlatformCasillas } from '../core/utils/platformCasillas';
 
-// Generador de IDs únicos: timestamp + contador incremental para evitar colisiones
-let _idCounter = 0;
-const uniqueId = () => Date.now() * 1000 + (++_idCounter % 1000);
+// Generador de IDs únicos: siempre crece (cada id es mayor que el anterior), así dos
+// elementos creados en el mismo milisegundo nunca comparten id. Date.now() × 1000 queda
+// muy por debajo del máximo entero exacto de JavaScript (2^53): sin redondeos.
+// (Antes: el contador se reiniciaba cada 1000 y repairVersionIds usaba × 10000, que
+// pasaba de 2^53 → JavaScript redondeaba y varias versiones quedaron con el mismo id.)
+let _lastId = 0;
+const uniqueId = () => {
+  _lastId = Math.max(Date.now() * 1000, _lastId + 1);
+  return _lastId;
+};
+
+// Versiones con id repetido o demasiado grande (no exacto) reciben un id nuevo. Nada
+// apunta a las versiones por su id (las categorías y plataformas sí se referencian, por
+// eso esas no se tocan), así que cambiarlo no rompe nada. La primera de cada id
+// repetido conserva el suyo.
+const repairVersionIds = (versions = []) => {
+  const seen = new Set();
+  return versions.map((v) => {
+    const ok = Number.isSafeInteger(v.id) && !seen.has(v.id);
+    const id = ok ? v.id : uniqueId();
+    seen.add(id);
+    return ok ? v : { ...v, id };
+  });
+};
 
 const libraryStore = create(
   devtools(
@@ -19,7 +41,38 @@ const libraryStore = create(
         categories: [], // [{id, name, color, duration, platformId}]
         versions: [], // [{id, name, categoryId, platformId, duration}]
         columnMappings: [], // [{id, fileName, mapping: {editor: 'col1', date: 'col2'...}}]
-        
+        editors: [], // [{id, name, aliases: ['luiis', ...]}] — nombre correcto + variantes conocidas
+
+        // ===== EDITORES =====
+        addEditor: (name, aliases = []) =>
+          set((state) => ({
+            editors: [...state.editors, { id: uniqueId(), name: name.trim(), aliases }],
+          })),
+
+        updateEditor: (id, updates) =>
+          set((state) => ({
+            editors: state.editors.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+          })),
+
+        deleteEditor: (id) =>
+          set((state) => ({ editors: state.editors.filter((e) => e.id !== id) })),
+
+        // Aplica de una vez lo que el usuario decidió en el aviso de editores desconocidos:
+        // newEditors: [{ name, aliases }]; aliasesByName: { 'Luis': ['luiis'], ... }
+        applyEditorResolutions: ({ newEditors = [], aliasesByName = {} }) =>
+          set((state) => {
+            const editors = [
+              ...state.editors,
+              ...newEditors.map((e) => ({ id: uniqueId(), name: e.name.trim(), aliases: e.aliases || [] })),
+            ];
+            return {
+              editors: editors.map((e) => {
+                const extra = aliasesByName[e.name] || [];
+                return extra.length ? { ...e, aliases: [...new Set([...(e.aliases || []), ...extra])] } : e;
+              }),
+            };
+          }),
+
         // ===== PLATAFORMAS =====
         addPlatform: (platform) =>
           set((state) => ({
@@ -109,11 +162,6 @@ const libraryStore = create(
           })),
 
         // Repara IDs duplicados asignando un ID único a cada versión
-        repairVersionIds: () =>
-          set((state) => ({
-            versions: state.versions.map((v, idx) => ({ ...v, id: Date.now() * 10000 + idx })),
-          })),
-
         // Reemplaza todas las versiones de una vez (usado por auto-asignar masivo)
         setVersions: (versions) => set(() => ({ versions })),
 
@@ -157,26 +205,17 @@ const libraryStore = create(
         // ===== SINCRONIZACIÓN =====
         importLibraryData: (data) => {
           // Validar e importar con estructura correcta
-          const platforms = (data.platforms || []).map(p => ({
-            ...p,
-            // Asegurar que categorias sea un array con estructura completa
-            categorias: (p.categorias || []).map(cat => {
-              if (typeof cat === 'string') {
-                return { key: cat, duration: '', effortRate: null };
-              }
-              return {
-                key: cat.key || cat.name || '',
-                duration: cat.duration || '',
-                effortRate: cat.effortRate !== undefined ? cat.effortRate : null,
-              };
-            }),
-          }));
+          // Casillas de logica_sin_version siempre en formato actual (convierte respaldos antiguos)
+          const platforms = (data.platforms || []).map(normalizePlatformCasillas);
           
           return set({
             platforms,
             categories: data.categories || [],
-            versions: data.versions || [],
+            versions: repairVersionIds(data.versions || []),
             columnMappings: data.columnMappings || [],
+            // Respaldos anteriores al registro de editores no traen este campo:
+            // en ese caso se conserva el registro actual en vez de borrarlo.
+            editors: data.editors ?? get().editors,
           });
         },
         
@@ -184,45 +223,31 @@ const libraryStore = create(
           // Asegurar que platforms incluyan todas las tasas de esfuerzo en categorias
           const state = get();
           return {
-            platforms: state.platforms.map(p => ({
-              ...p,
-              // Asegurar que categorias siempre sea un array con estructura completa
-              categorias: (p.categorias || []).map(cat => ({
-                key: typeof cat === 'string' ? cat : cat.key,
-                duration: typeof cat === 'string' ? '' : cat.duration,
-                effortRate: typeof cat === 'string' ? null : cat.effortRate,
-              })),
-            })),
+            platforms: state.platforms.map(normalizePlatformCasillas),
             categories: state.categories,
             versions: state.versions,
             columnMappings: state.columnMappings,
+            editors: state.editors,
             exportedAt: new Date().toISOString(),
           };
-        },
-        
-        // Validar y reparar estructuras incompletas de categorias
-        validateAndRepairLibrary: () => {
-          const state = get();
-          const repairedPlatforms = state.platforms.map(p => ({
-            ...p,
-            categorias: (p.categorias || []).map(cat => {
-              if (typeof cat === 'string') {
-                return { key: cat, duration: '', effortRate: null };
-              }
-              return {
-                key: cat.key || cat.name || '',
-                duration: cat.duration !== undefined ? cat.duration : '',
-                effortRate: cat.effortRate !== undefined ? cat.effortRate : null,
-              };
-            }),
-          }));
-          
-          set({ platforms: repairedPlatforms });
-          return repairedPlatforms;
         },
       }),
       {
         name: 'library-store', // localStorage key
+        // v1: casillas de logica_sin_version convertidas una vez al formato actual.
+        // Los datos guardados en el navegador antes de esto (versión 0) pasan por aquí.
+        // v2: versiones con id repetido reciben un id nuevo (punto #10).
+        version: 2,
+        migrate: (persisted, fromVersion) => {
+          let state = persisted || {};
+          if (fromVersion < 1) {
+            state = { ...state, platforms: (state.platforms || []).map(normalizePlatformCasillas) };
+          }
+          if (fromVersion < 2) {
+            state = { ...state, versions: repairVersionIds(state.versions || []) };
+          }
+          return state;
+        },
       }
     )
   )

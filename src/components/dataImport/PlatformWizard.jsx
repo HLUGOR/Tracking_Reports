@@ -15,15 +15,8 @@
 import React, { useState, useMemo } from 'react';
 import libraryStore from '../../store/libraryStore';
 import { checkVersionSuffix } from '../../core/reportEngine/versionRules';
+import { LOGICA_FAMILIES } from '../../core/reportEngine/logicaFamilies';
 
-const LOGICA_OPTIONS = [
-  { value: 'logica_de_versiones', label: 'logica_de_versiones', desc: 'Clasifica por VERSION contra la librería (LATAM, VOD, OFF AIR...).' },
-  { value: 'logica_sin_version', label: 'logica_sin_version', desc: 'Clasifica por columna SEASON. No usa la librería de versiones.' },
-  { value: 'iberia_especial', label: 'iberia_especial', desc: 'Como logica_de_versiones, pero sin fallback: si el nombre no está registrado, no cuenta.' },
-  { value: 'logica_comerciales', label: 'logica_comerciales', desc: 'Cuenta assets y acumula DURATION (timecode). No necesita Categorías ni Versiones.' },
-  { value: 'logica_bp_i', label: 'logica_bp_i', desc: 'Cuenta assets y acumula MINUTOS netos. No necesita Categorías ni Versiones.' },
-  { value: 'logica_youtube', label: 'logica_youtube', desc: 'Cuenta CLIPS y SHORTS por editor. No necesita Categorías ni Versiones.' },
-];
 
 let _tempKeyCounter = 0;
 const nextTempKey = (prefix) => `${prefix}-${++_tempKeyCounter}`;
@@ -40,8 +33,6 @@ function PlatformWizard({ onCancel, onComplete }) {
     logica: '',
     effortGroup: '',
     platformEffortRate: null,
-    seriesLogica: null,
-    seriesEffortRate: null,
     categorias: [], // solo logica_sin_version
   });
 
@@ -53,7 +44,7 @@ function PlatformWizard({ onCancel, onComplete }) {
 
   const needsCatVersions = platformData.logica === 'logica_de_versiones' || platformData.logica === 'iberia_especial';
   const needsSinVersionCats = platformData.logica === 'logica_sin_version';
-  const needsPlatformRate = ['logica_comerciales', 'logica_bp_i', 'logica_youtube'].includes(platformData.logica);
+  const needsPlatformRate = ['logica_comerciales', 'logica_bp_i', 'logica_por_duracion', 'logica_youtube'].includes(platformData.logica);
 
   // Pasos visibles según la lógica elegida (el 4 solo aplica a logica_de_versiones/iberia_especial)
   const stepKeys = useMemo(() => (needsCatVersions ? [1, 2, 3, 4, 5] : [1, 2, 3, 5]), [needsCatVersions]);
@@ -155,8 +146,6 @@ function PlatformWizard({ onCancel, onComplete }) {
       logica: platformData.logica,
       effortGroup: platformData.effortGroup,
       platformEffortRate: platformData.platformEffortRate,
-      seriesLogica: platformData.seriesLogica,
-      seriesEffortRate: platformData.seriesEffortRate,
       categorias: needsSinVersionCats ? platformData.categorias : [],
     };
     libraryStore.getState().commitPlatformSetup({
@@ -198,26 +187,34 @@ function PlatformWizard({ onCancel, onComplete }) {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>Tipo de lógica</label>
-              {LOGICA_OPTIONS.map((opt) => (
-                <label
-                  key={opt.value}
-                  style={{
-                    display: 'flex', flexDirection: 'column', gap: '2px', padding: '0.6rem 0.75rem',
-                    borderRadius: '8px', border: `1.5px solid ${platformData.logica === opt.value ? '#4f46e5' : '#e2e8f0'}`,
-                    background: platformData.logica === opt.value ? '#eef2ff' : '#fff', cursor: 'pointer',
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <input
-                      type="radio"
-                      name="logica"
-                      checked={platformData.logica === opt.value}
-                      onChange={() => setPlatformData({ ...platformData, logica: opt.value })}
-                    />
-                    <strong style={{ fontSize: '0.88rem' }}>{opt.label}</strong>
-                  </span>
-                  <span style={{ fontSize: '0.78rem', color: '#64748b', marginLeft: '1.5rem' }}>{opt.desc}</span>
-                </label>
+              {LOGICA_FAMILIES.map((fam) => (
+                <div key={fam.key} style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '0.4rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+                    {fam.title} <span style={{ fontWeight: 400, color: '#64748b' }}>— usa la columna {fam.column}</span>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#94a3b8', marginTop: '-4px' }}>{fam.desc}</div>
+                  {fam.options.map((opt) => (
+                    <label
+                      key={opt.value}
+                      style={{
+                        display: 'flex', flexDirection: 'column', gap: '2px', padding: '0.6rem 0.75rem',
+                        borderRadius: '8px', border: `1.5px solid ${platformData.logica === opt.value ? '#4f46e5' : '#e2e8f0'}`,
+                        background: platformData.logica === opt.value ? '#eef2ff' : '#fff', cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input
+                          type="radio"
+                          name="logica"
+                          checked={platformData.logica === opt.value}
+                          onChange={() => setPlatformData({ ...platformData, logica: opt.value })}
+                        />
+                        <strong style={{ fontSize: '0.88rem' }}>{opt.label}</strong>
+                      </span>
+                      <span style={{ fontSize: '0.78rem', color: '#64748b', marginLeft: '1.5rem' }}>{opt.desc}</span>
+                    </label>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
@@ -255,9 +252,12 @@ function PlatformWizard({ onCancel, onComplete }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {needsPlatformRate && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={labelStyle}>⚡ Tasa de Esfuerzo de la plataforma (opcional)</label>
+                <label style={labelStyle}>
+                  ⚡ Tasa de Esfuerzo de la plataforma (vacío = 1, el estándar)
+                </label>
                 <input
-                  type="number" step="0.25" min="0" placeholder="Ej: 1, 1.5, 2 (default: 1)"
+                  type="number" step="0.25" min="0"
+                  placeholder="1 = 100%, 1.5 = 150%, 0.75 = 75%"
                   value={platformData.platformEffortRate ?? ''}
                   onChange={(e) => setPlatformData({ ...platformData, platformEffortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
                   style={{ ...inputStyle, width: '160px' }}
@@ -301,25 +301,6 @@ function PlatformWizard({ onCancel, onComplete }) {
                 )}
               </div>
             )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', ...labelStyle }}>
-                <input
-                  type="checkbox"
-                  checked={platformData.seriesLogica === 'logica_series'}
-                  onChange={(e) => setPlatformData({ ...platformData, seriesLogica: e.target.checked ? 'logica_series' : null })}
-                />
-                📺 Incluir en Reporte por Serie (opcional)
-              </label>
-              {platformData.seriesLogica === 'logica_series' && (
-                <input
-                  type="number" step="0.25" min="0" placeholder="Tasa de esfuerzo (ej: 1, 1.5)"
-                  value={platformData.seriesEffortRate ?? ''}
-                  onChange={(e) => setPlatformData({ ...platformData, seriesEffortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
-                  style={{ ...inputStyle, width: '200px' }}
-                />
-              )}
-            </div>
 
             {!needsPlatformRate && !needsSinVersionCats && (
               <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
@@ -431,7 +412,7 @@ function PlatformWizard({ onCancel, onComplete }) {
               <div><strong>Nombre:</strong> {platformData.name || '—'}</div>
               <div><strong>Lógica:</strong> {platformData.logica || '—'}</div>
               <div><strong>Grupo de Esfuerzo:</strong> {platformData.effortGroup || 'OTROS'}</div>
-              {needsPlatformRate && <div><strong>Tasa de plataforma:</strong> {platformData.platformEffortRate ?? '1 (default)'}</div>}
+              {needsPlatformRate && <div><strong>Tasa de plataforma:</strong> {platformData.platformEffortRate ?? '1 (estándar)'}</div>}
               {needsSinVersionCats && (
                 <div><strong>Categorías:</strong> {platformData.categorias.map((c) => `${c.key} (${c.duration}min)`).join(', ') || '—'}</div>
               )}
@@ -440,9 +421,6 @@ function PlatformWizard({ onCancel, onComplete }) {
                   <div><strong>Categorías a crear:</strong> {stagedCategories.length} — {stagedCategories.map((c) => c.data.name).join(', ') || '—'}</div>
                   <div><strong>Versiones a crear:</strong> {stagedVersions.length}</div>
                 </>
-              )}
-              {platformData.seriesLogica === 'logica_series' && (
-                <div><strong>Reporte por Serie:</strong> tasa {platformData.seriesEffortRate ?? '—'}</div>
               )}
             </div>
 

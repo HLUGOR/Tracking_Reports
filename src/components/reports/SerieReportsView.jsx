@@ -6,6 +6,7 @@ import SerieReportsEngine from '../../core/reportEngine/SerieReportsEngine';
 import useTranslation from '../../i18n/useTranslation';
 import { translate } from '../../i18n/translations';
 import './SerieReportsView.css';
+import { formatPeriod } from '../../core/utils/dateUtils';
 
 // El Excel exportado SIEMPRE va en inglés, sin importar el idioma activo en pantalla.
 const en = (text) => translate(text, 'en');
@@ -101,7 +102,7 @@ function SerieReportsView() {
     // Título
     const periodoStr = dateField === 'all'
       ? en('Todos los registros')
-      : `${startDate} → ${endDate}`;
+      : formatPeriod(startDate, endDate);
 
     const titleRow = ws.addRow([`${en('REPORTE POR SERIE')}  •  ${periodoStr}`]);
     ws.mergeCells('A1:C1');
@@ -244,11 +245,22 @@ function SerieReportsView() {
       {error && <div className="sr-error">{error}</div>}
       {rows.length === 0 && <div className="sr-empty">⬆️ {t('Carga un archivo Excel para generar el reporte.')}</div>}
 
+      {/* Aviso: filas sin fecha de aprobación válida (MM/DD/AAAA) */}
+      {reportData && reportData.invalidDateCount > 0 && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.75rem 1rem', color: '#b91c1c', marginBottom: '1rem', fontSize: '0.88rem' }}>
+          📅 {reportData.invalidDateCount} {t('filas sin fecha de aprobación válida (MM/DD/AAAA).')}{' '}
+          {dateField === 'all'
+            ? t('Se contaron igual porque el reporte es de todos los registros.')
+            : t('Quedaron fuera porque no se pueden ubicar en el rango de fechas.')}{' '}
+          {t('El detalle está en la Auditoría del Reporte Plataformas.')}
+        </div>
+      )}
+
       {/* Resultado */}
       {reportData && (
         <>
           <div className="sr-summary">
-            <span>🗓 {t('Período:')} {dateField === 'all' ? t('Todos los registros') : `${startDate} → ${endDate}`}</span>
+            <span>🗓 {t('Período:')} {dateField === 'all' ? t('Todos los registros') : formatPeriod(startDate, endDate)}</span>
             <span>📺 {t('Series únicas:')} <strong>{reportData.totalSeries}</strong></span>
             <span>📦 {t('Total assets:')} <strong>{reportData.grandCount}</strong></span>
             <span>⏱ {t('Horas de Esfuerzo:')} <strong>{reportData.grandEffortHours}h</strong></span>

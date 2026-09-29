@@ -3,16 +3,18 @@
  * Permite crear/editar plataformas, categorías, versiones, duraciones
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import '../../styles/LibraryView.css';
 import libraryStore from '../../store/libraryStore';
+import { LOGICA_FAMILIES, familyOf } from '../../core/reportEngine/logicaFamilies';
 import {
   detectDurationFromSuffix as detectDurationFromName,
   checkVersionSuffix,
   detectSubPlatform as detectSubPlatformFromName,
 } from '../../core/reportEngine/versionRules';
 import { buildCategoryLabel } from '../../core/utils/categoryLabel';
+import { editorKey } from '../../core/utils/editorRegistry';
 import PlatformWizard from './PlatformWizard';
 
 function LibraryView() {
@@ -20,6 +22,11 @@ function LibraryView() {
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({});
+
+  // Editar plataforma con versiones: tasas de sus categorías editadas en el mismo
+  // formulario ({ categoryId: valor }). Se guardan EN la categoría (una sola tasa).
+  const [catRateEdits, setCatRateEdits] = useState({});
+  useEffect(() => { setCatRateEdits({}); }, [showForm, editingId]);
 
   // Asistente de alta de plataforma nueva (ver PlatformWizard.jsx)
   const [showWizard, setShowWizard] = useState(false);
@@ -51,6 +58,34 @@ function LibraryView() {
   const categories = libraryStore((state) => state.categories);
   const versions = libraryStore((state) => state.versions);
   const columnMappings = libraryStore((state) => state.columnMappings);
+  const editors = libraryStore((state) => state.editors);
+
+  // ===== EDITORES =====
+  const [newEditorName, setNewEditorName] = useState('');
+  const editorNameTaken = (name, exceptId = null) => {
+    const k = editorKey(name);
+    return editors.some((e) => e.id !== exceptId && (editorKey(e.name) === k || (e.aliases || []).includes(k)));
+  };
+  const handleAddEditor = () => {
+    const name = newEditorName.trim();
+    if (!name) return;
+    if (editorNameTaken(name)) {
+      alert(`"${name}" ya está registrado (como nombre o como alias).`);
+      return;
+    }
+    libraryStore.getState().addEditor(name);
+    setNewEditorName('');
+  };
+  const handleRenameEditor = (ed, input) => {
+    const name = input.value.trim();
+    if (!name || name === ed.name) { input.value = ed.name; return; }
+    if (editorNameTaken(name, ed.id)) {
+      alert(`"${name}" ya está registrado (como nombre o como alias).`);
+      input.value = ed.name;
+      return;
+    }
+    libraryStore.getState().updateEditor(ed.id, { name });
+  };
 
   // ===== PLATAFORMAS =====
   // Alta nueva usa el asistente (PlatformWizard); no escribe nada hasta el paso final.
@@ -62,15 +97,16 @@ function LibraryView() {
   const handleSavePlatform = () => {
     if (!formData.name || !formData.logica) return;
 
-    // Normalizar categorias: siempre guardar como objetos {key, duration, effortRate}
-    const normalizedData = {
-      ...formData,
-      categorias: (formData.categorias || []).map(cat =>
-        typeof cat === 'string' ? { key: cat, duration: '', effortRate: null } : cat
-      ),
-    };
+    const normalizedData = { ...formData, categorias: formData.categorias || [] };
 
     if (editingId) {
+      // Tasas de categorías cambiadas desde este formulario (plataformas con versiones)
+      Object.entries(catRateEdits).forEach(([catId, v]) => {
+        // Las claves del objeto son texto; el id real de la categoría puede ser número.
+        const cat = categories.find((c) => String(c.id) === catId);
+        // Vacío = sin tasa = estándar 1
+        if (cat) libraryStore.getState().updateCategory(cat.id, { effortRate: v === '' ? null : parseFloat(v) });
+      });
       libraryStore.getState().updatePlatform(editingId, normalizedData);
       setShowForm(false);
       setFormData({});
@@ -176,6 +212,9 @@ function LibraryView() {
       if (!v.duration || Number(v.duration) <= 0) {
         issues.push(`⚠️ "${v.name}" (${platName}) — duración 0 o no definida`);
       }
+      getVersionCategoryConflicts(v).forEach((msg) => {
+        issues.push(`🔴 "${v.name}" (${platName}) — ${msg}`);
+      });
     });
 
     if (issues.length === 0) {
@@ -195,12 +234,38 @@ function LibraryView() {
     setShowForm(true);
   };
 
+  // Nombre, duración y categoría de una versión tienen que decir lo mismo. Si la
+  // categoría es de otra duración, el reporte suma los minutos de la versión pero
+  // calcula las horas de esfuerzo con la tarifa de la categoría (así se perdieron
+  // horas con BRA_SAP_CC_SQZ_CREDITS_HD 9: 120 min archivada en "serie (30 min)").
+  const getVersionCategoryConflicts = (data) => {
+    const cat = categories.find((c) => c.id === data.categoryId);
+    const catDur = Number(cat?.duration) || 0;
+    if (!cat || !catDur) return [];
+    const conflicts = [];
+    const suffixDur = checkVersionSuffix(data.name || '').duration;
+    if (suffixDur !== null && suffixDur !== catDur) {
+      conflicts.push(`El nombre sugiere ${suffixDur} min (por su sufijo), pero la categoría "${cat.name}" es de ${catDur} min.`);
+    }
+    const verDur = Number(data.duration) || 0;
+    if (verDur && verDur !== catDur) {
+      conflicts.push(`La duración de la versión (${verDur} min) no coincide con la categoría "${cat.name}" (${catDur} min).`);
+    }
+    return conflicts;
+  };
+
   const handleSaveVersion = () => {
     if (!formData.name || !formData.platformId || !formData.categoryId) return;
 
     const { invalidSuffix } = checkVersionSuffix(formData.name);
     if (invalidSuffix !== null) {
       alert(`🚫 No se puede crear esta versión.\n\nEl número "${invalidSuffix}" no es parte de la numeración soportada por el sistema (1-4, 5-6, 9-10).\n\nComunícate con el desarrollador si esta numeración debe agregarse.`);
+      return;
+    }
+
+    const conflicts = getVersionCategoryConflicts(formData);
+    if (conflicts.length > 0) {
+      alert(`🚫 No se puede guardar esta versión — no coincide:\n\n${conflicts.join('\n')}\n\nCorrige el nombre, la duración o elige la categoría correcta.`);
       return;
     }
 
@@ -430,6 +495,12 @@ function LibraryView() {
         >
           🗺️ Mapeos de Columnas ({columnMappings.length})
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'editors' ? 'active' : ''}`}
+          onClick={() => setActiveTab('editors')}
+        >
+          👤 Editores ({editors.length})
+        </button>
       </div>
 
       <div className="library-content">
@@ -446,7 +517,7 @@ function LibraryView() {
             {/* Feedback card post-creación */}
             {savedPlatformInfo && (() => {
               const l = savedPlatformInfo.logica;
-              const isSelfContained = l === 'logica_sin_version' || l === 'logica_comerciales' || l === 'logica_bp_i' || l === 'logica_youtube';
+              const isSelfContained = l === 'logica_sin_version' || l === 'logica_comerciales' || l === 'logica_bp_i' || l === 'logica_por_duracion' || l === 'logica_youtube';
               return (
                 <div style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
@@ -466,6 +537,7 @@ function LibraryView() {
                       {l === 'logica_sin_version' && 'Clasifica por columna SEASON automáticamente. No necesita Categorías ni Versiones.'}
                       {l === 'logica_comerciales' && 'Cuenta assets y acumula DURATION. No necesita Categorías ni Versiones.'}
                       {l === 'logica_bp_i' && 'Cuenta assets y acumula MINUTOS netos. No necesita Categorías ni Versiones.'}
+                      {l === 'logica_por_duracion' && 'Suma los minutos de la columna DURATION × tasa de la plataforma. No necesita Categorías ni Versiones.'}
                       {l === 'logica_youtube' && 'Cuenta CLIPS y SHORTS por editor. No necesita Categorías ni Versiones.'}
                       {(l === 'logica_de_versiones' || l === 'iberia_especial') && (
                         <>Siguiente paso: ve a <strong>📂 Categorías</strong> para crear las categorías de esta plataforma, luego a <strong>📦 Versiones</strong> para registrar las versiones disponibles.</>
@@ -507,7 +579,7 @@ function LibraryView() {
                   </thead>
                   <tbody>
                     {platforms.map((p) => {
-                      const isSelfContained = p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_youtube';
+                      const isSelfContained = p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_por_duracion' || p.logica === 'logica_youtube';
                       const hasCats = categories.some((c) => c.platformId === p.id);
                       return (
                       <tr key={p.id}>
@@ -575,7 +647,7 @@ function LibraryView() {
                   marginBottom: '-2px',
                 }}
               >
-                📂 Por Versión (LATAM, OFF AIR, IBERIA, VOD)
+                📂 Con versión (LATAM, OFF AIR, IBERIA, VOD)
               </button>
               <button
                 onClick={() => setCatSubTab('propias')}
@@ -586,7 +658,7 @@ function LibraryView() {
                   marginBottom: '-2px',
                 }}
               >
-                ⚡ Tasas Propias (AMAZON, SONY ONE, COMERCIALES, BP&I, YOUTUBE)
+                ⚡ Tasas Propias (sin versión, por duración y por conteo)
               </button>
             </div>
 
@@ -594,7 +666,7 @@ function LibraryView() {
             {catSubTab === 'propias' && (() => {
               const propiaPlats = platforms.filter(p =>
                 p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales' ||
-                p.logica === 'logica_bp_i' || p.logica === 'logica_youtube'
+                p.logica === 'logica_bp_i' || p.logica === 'logica_por_duracion' || p.logica === 'logica_youtube'
               );
               if (propiaPlats.length === 0) return (
                 <div className="empty-state"><p>No hay plataformas con tasas propias configuradas.</p></div>
@@ -624,7 +696,7 @@ function LibraryView() {
                         </div>
                         {cats.length === 0 ? (
                           <div style={{ padding: '1rem', color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                            {p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_youtube'
+                            {p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_por_duracion' || p.logica === 'logica_youtube'
                               ? 'Esta plataforma usa tasa única (no tiene categorías). Configura la Tasa de Esfuerzo en Editar.'
                               : 'Sin categorías configuradas. Haz clic en Editar para agregar keys.'}
                           </div>
@@ -639,7 +711,7 @@ function LibraryView() {
                             </thead>
                             <tbody>
                               {cats.map((cat, idx) => {
-                                const c = typeof cat === 'string' ? { key: cat, duration: '', effortRate: null } : cat;
+                                const c = cat;
                                 return (
                                 <tr key={idx}>
                                   <td><code style={{ fontSize: '0.85rem' }}>{c.key || <span style={{ color: '#94a3b8' }}>—</span>}</code></td>
@@ -651,7 +723,7 @@ function LibraryView() {
                                   <td style={{ textAlign: 'center' }}>
                                     {c.effortRate != null && c.effortRate !== ''
                                       ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.85rem', fontWeight: 700 }}>{c.effortRate}×</span>
-                                      : <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 600 }}>⚠ Sin tasa</span>}
+                                      : <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 600 }}>Sin tasa (cuenta 1×, estándar)</span>}
                                   </td>
                                 </tr>
                                 );
@@ -660,12 +732,12 @@ function LibraryView() {
                           </table>
                         )}
                         {/* Tasa única para logicas sin categorías */}
-                        {(p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_youtube') && (
+                        {(p.logica === 'logica_comerciales' || p.logica === 'logica_bp_i' || p.logica === 'logica_por_duracion' || p.logica === 'logica_youtube') && (
                           <div style={{ padding: '0.6rem 1rem', borderTop: cats.length > 0 ? '1px solid #e2e8f0' : 'none', fontSize: '0.82rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span>Tasa global:</span>
                             {p.platformEffortRate != null && p.platformEffortRate !== ''
                               ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontWeight: 700 }}>{p.platformEffortRate}×</span>
-                              : <span style={{ color: '#f59e0b', fontWeight: 600 }}>⚠ Sin tasa (usa 1×)</span>}
+                              : <span style={{ color: '#f59e0b', fontWeight: 600 }}>Sin tasa (cuenta 1×, estándar)</span>}
                           </div>
                         )}
                       </div>
@@ -679,7 +751,7 @@ function LibraryView() {
             {catSubTab === 'versiones' && (<>
             {(() => {
               const versionPlats = platforms.filter(p => p.logica === 'logica_de_versiones' || p.logica === 'iberia_especial');
-              const sinVersionPlats = platforms.filter(p => p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales');
+              const sinVersionPlats = platforms.filter(p => p.logica !== 'logica_de_versiones' && p.logica !== 'iberia_especial');
               if (platforms.length === 0) return null;
               return (
                 <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '0.7rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: '#0c4a6e', lineHeight: 1.6 }}>
@@ -784,7 +856,7 @@ function LibraryView() {
                     {categories.filter(c => filterCatPlatformId === null || c.platformId === filterCatPlatformId).map((c) => {
                       const catPlatform = platforms.find((p) => p.id === c.platformId);
                       const platLogica = catPlatform?.logica || 'logica_de_versiones';
-                      const isVersionless = platLogica === 'logica_sin_version' || platLogica === 'logica_comerciales';
+                      const isVersionless = platLogica !== 'logica_de_versiones' && platLogica !== 'iberia_especial';
 
                       // Versiones directamente ligadas a esta categoría (por categoryId)
                       const ownVersions = versions.filter((v) => v.categoryId === c.id);
@@ -805,7 +877,7 @@ function LibraryView() {
                         <td style={{ textAlign: 'center' }}>
                           {c.effortRate != null && c.effortRate !== ''
                             ? <span style={{ background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', fontWeight: 700 }}>{c.effortRate}×</span>
-                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>—</span>}
+                            : <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>1× (estándar)</span>}
                         </td>
                         <td style={{ fontSize: '0.82rem', color: '#475569' }}>
                           {isVersionless ? (
@@ -907,7 +979,7 @@ function LibraryView() {
             {/* Banner: qué plataformas aplican aquí */}
             {(() => {
               const versionPlats = platforms.filter(p => p.logica === 'logica_de_versiones' || p.logica === 'iberia_especial');
-              const excludedPlats = platforms.filter(p => p.logica === 'logica_sin_version' || p.logica === 'logica_comerciales');
+              const excludedPlats = platforms.filter(p => p.logica !== 'logica_de_versiones' && p.logica !== 'iberia_especial');
               if (platforms.length === 0) return null;
               return (
                 <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '0.7rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: '#0c4a6e', lineHeight: 1.6 }}>
@@ -983,9 +1055,17 @@ function LibraryView() {
                           <td>{v.name}</td>
                           <td><code style={{ fontSize: '0.8rem' }}>{platforms.find((p) => p.id === v.platformId)?.logica || 'N/A'}</code></td>
                           <td>
-                            {v.duration
-                              ? buildCategoryLabel({ name: getCategoryName(v.categoryId), duration: v.duration })
-                              : getCategoryName(v.categoryId)}
+                            {(() => {
+                              // Etiqueta con la duración de la CATEGORÍA (no la de la versión), para
+                              // que un desajuste entre ambas se vea en vez de quedar escondido.
+                              const cat = categories.find((c) => c.id === v.categoryId);
+                              if (!cat) return getCategoryName(v.categoryId);
+                              const label = buildCategoryLabel({ name: cat.name, duration: cat.duration });
+                              const mismatch = Number(v.duration) && Number(cat.duration) && Number(v.duration) !== Number(cat.duration);
+                              return mismatch
+                                ? <span style={{ color: '#b91c1c', fontWeight: 600 }} title="La duración de la versión no coincide con la de su categoría">⚠️ {label}</span>
+                                : label;
+                            })()}
                           </td>
                           <td>{v.duration ? `${v.duration} min` : 'N/A'}</td>
                           <td className="actions">
@@ -1013,6 +1093,88 @@ function LibraryView() {
                 </div>
               );
             })()}
+          </div>
+        )}
+
+        {/* EDITORES */}
+        {activeTab === 'editors' && (
+          <div className="tab-panel">
+            <div className="panel-header">
+              <h3>Editores</h3>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              <input
+                type="text"
+                placeholder="Nombre correcto del editor nuevo"
+                value={newEditorName}
+                onChange={(e) => setNewEditorName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddEditor(); }}
+                style={{ flex: 1, padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+              />
+              <button className="btn btn-primary" onClick={handleAddEditor} disabled={!newEditorName.trim()}>
+                ➕ Agregar editor
+              </button>
+            </div>
+
+            {editors.length === 0 ? (
+              <div className="empty-state">
+                <p>Sin editores registrados. Agrégalos aquí, o carga un Excel: la app te pedirá registrar los nombres que encuentre.</p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="library-table">
+                  <thead>
+                    <tr>
+                      <th>Nombre correcto</th>
+                      <th>Alias (variantes reconocidas)</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...editors].sort((a, b) => a.name.localeCompare(b.name)).map((ed) => (
+                      <tr key={ed.id}>
+                        <td>
+                          <input
+                            type="text"
+                            defaultValue={ed.name}
+                            onBlur={(e) => handleRenameEditor(ed, e.target)}
+                            style={{ padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0', width: '100%' }}
+                          />
+                        </td>
+                        <td>
+                          {(ed.aliases || []).length === 0 ? (
+                            <span style={{ color: '#94a3b8' }}>—</span>
+                          ) : (
+                            (ed.aliases || []).map((a) => (
+                              <span key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '12px', padding: '1px 8px', marginRight: '0.3rem', fontSize: '0.8rem' }}>
+                                {a}
+                                <button
+                                  title="Quitar alias"
+                                  onClick={() => libraryStore.getState().updateEditor(ed.id, { aliases: ed.aliases.filter((x) => x !== a) })}
+                                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b', padding: 0 }}
+                                >✕</button>
+                              </span>
+                            ))
+                          )}
+                        </td>
+                        <td className="actions">
+                          <button
+                            className="btn-icon btn-delete"
+                            onClick={() => {
+                              if (window.confirm(`¿Eliminar al editor "${ed.name}" del registro? Si vuelve a aparecer en un Excel, la app preguntará por él.`)) {
+                                libraryStore.getState().deleteEditor(ed.id);
+                              }
+                            }}
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -1101,13 +1263,26 @@ function LibraryView() {
                   onChange={(e) => setFormData({ ...formData, logica: e.target.value })}
                 >
                   <option value="">— Selecciona tipo de lógica —</option>
-                  <option value="logica_de_versiones">logica_de_versiones — clasifica por VERSION (librería)</option>
-                  <option value="logica_sin_version">logica_sin_version — clasifica por SEASON (sin librería)</option>
-                  <option value="iberia_especial">iberia_especial — como versiones, sin fallback</option>
-                  <option value="logica_comerciales">logica_comerciales — cuenta assets y acumula DURATION</option>
-                  <option value="logica_bp_i">logica_bp_i — cuenta assets y acumula MINUTOS netos</option>
-                  <option value="logica_youtube">logica_youtube — cuenta CLIPS y SHORTS por editor</option>
+                  {LOGICA_FAMILIES.map((fam) => (
+                    <optgroup key={fam.key} label={`${fam.title} — columna ${fam.column}`}>
+                      {fam.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
+                {/* Qué hace la lógica elegida (misma descripción que el asistente) */}
+                {(() => {
+                  const fam = familyOf(formData.logica);
+                  const opt = fam?.options.find((o) => o.value === formData.logica);
+                  if (!fam || !opt) return null;
+                  return (
+                    <small style={{ color: '#475569', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.5rem 0.7rem', lineHeight: 1.5 }}>
+                      <strong>{fam.title}</strong> — {fam.desc}<br />
+                      {opt.desc}
+                    </small>
+                  );
+                })()}
 
                 {/* Grupo de Esfuerzo */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1134,7 +1309,7 @@ function LibraryView() {
                 </div>
 
                 {/* Tasa de Esfuerzo a nivel de plataforma (solo para logicas sin categorías propias) */}
-                {(formData.logica === 'logica_comerciales' || formData.logica === 'logica_bp_i' || formData.logica === 'logica_youtube') && (
+                {(formData.logica === 'logica_comerciales' || formData.logica === 'logica_bp_i' || formData.logica === 'logica_por_duracion' || formData.logica === 'logica_youtube') && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
                       ⚡ Tasa de Esfuerzo (multiplicador de horas)
@@ -1154,36 +1329,55 @@ function LibraryView() {
                   </div>
                 )}
 
-                {/* Configuración para Reporte por Serie (logica_series, independiente de logica_comerciales) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
-                    📺 Reporte por Serie
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.seriesLogica === 'logica_series'}
-                      onChange={(e) => setFormData({ ...formData, seriesLogica: e.target.checked ? 'logica_series' : null })}
-                    />
-                    Incluir en Reporte Series (logica_series)
-                  </label>
-                  {formData.seriesLogica === 'logica_series' && (
-                    <>
-                      <input
-                        type="number"
-                        step="0.25"
-                        min="0"
-                        placeholder="Tasa de esfuerzo (ej: 1, 1.5)"
-                        value={formData.seriesEffortRate ?? ''}
-                        onChange={(e) => setFormData({ ...formData, seriesEffortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
-                        style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.875rem', width: '180px' }}
-                      />
+                {/* Tasas de plataformas con versiones: viven en cada categoría. Se muestran y
+                    editan aquí para no tener que ir a 📂 Categorías; se guardan en la categoría. */}
+                {editingId && (formData.logica === 'logica_de_versiones' || formData.logica === 'iberia_especial') && (() => {
+                  const platCats = categories
+                    .filter((c) => String(c.platformId) === String(editingId))
+                    .sort((a, b) => (Number(a.duration) || 0) - (Number(b.duration) || 0));
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
+                        ⚡ Tasas de Esfuerzo (una por categoría)
+                      </label>
+                      {platCats.length === 0 ? (
+                        <small style={{ color: '#92400e' }}>
+                          Esta plataforma no tiene categorías todavía. Créalas en 📂 Categorías.
+                        </small>
+                      ) : (
+                        <table className="library-table" style={{ margin: 0 }}>
+                          <thead>
+                            <tr><th>Categoría</th><th>Duración</th><th>Tasa</th></tr>
+                          </thead>
+                          <tbody>
+                            {platCats.map((c) => {
+                              const key = String(c.id);
+                              const value = key in catRateEdits ? catRateEdits[key] : (c.effortRate ?? '');
+                              return (
+                                <tr key={key}>
+                                  <td>{c.name}</td>
+                                  <td>{c.duration ? `${c.duration} min` : '—'}</td>
+                                  <td>
+                                    <input
+                                      type="number" step="0.25" min="0"
+                                      value={value}
+                                      onChange={(e) => setCatRateEdits({ ...catRateEdits, [key]: e.target.value })}
+                                      style={{ padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0', width: '90px' }}
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
                       <small style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
-                        Multiplica las horas de duración para calcular "Horas de Esfuerzo" en el Reporte por Serie. No afecta logica_comerciales ni otros reportes.
+                        Es la misma tasa que ves en 📂 Categorías: si la cambias aquí, cambia allá
+                        (y en todos los reportes).
                       </small>
-                    </>
-                  )}
-                </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Campos extra solo para logica_sin_version */}
                 {formData.logica === 'logica_sin_version' && (
@@ -1203,7 +1397,7 @@ function LibraryView() {
                       ].map(({ idx, label, placeholder }) => {
                         const rawCat = (formData.categorias || [])[idx];
                         // Normalizar formato antiguo (string) a objeto al renderizar
-                        const catObj = typeof rawCat === 'string' ? { key: rawCat, duration: '', effortRate: null } : (rawCat || { key: '', duration: '', effortRate: null });
+                        const catObj = rawCat || { key: '', duration: '', effortRate: null };
                         const updateSlot = (patch) => {
                           const cats = [...(formData.categorias || [])];
                           while (cats.length <= idx) cats.push({ key: '', duration: '', effortRate: null });
@@ -1500,6 +1694,14 @@ function LibraryView() {
                     onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) || '' })}
                   />
                 </div>
+                {getVersionCategoryConflicts(formData).length > 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '0.6rem 0.85rem', fontSize: '0.85rem', color: '#b91c1c' }}>
+                    🚫 No coincide — no se podrá guardar:
+                    <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1.2rem' }}>
+                      {getVersionCategoryConflicts(formData).map((m) => <li key={m}>{m}</li>)}
+                    </ul>
+                  </div>
+                )}
               </>
             )}
 

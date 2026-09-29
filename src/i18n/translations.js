@@ -60,6 +60,29 @@ const es_en = {
   'Filas descartadas:': 'Discarded rows:',
   'Filas excluidas por fecha fuera de rango, plataforma no registrada (en el modo IBERIA) o versión sin categoría válida.':
     'Rows excluded due to out-of-range date, unregistered platform (IBERIA mode), or version without a valid category.',
+  'Filas que no suman minutos ni horas a ningún editor. Motivo de cada una:':
+    'Rows that add no minutes or hours to any editor. Reason for each:',
+  'filas': 'rows',
+  'fila': 'row',
+  'vacía': 'empty',
+  'sin fecha válida (no se puede ubicar en el rango)': 'no valid date (cannot be placed in the date range)',
+  'Filas sin fecha de aprobación válida (MM/DD/AAAA)': 'Rows without a valid approval date (MM/DD/YYYY)',
+  '📅 Filas sin fecha de aprobación válida (MM/DD/AAAA)': '📅 Rows without a valid approval date (MM/DD/YYYY)',
+  'Todas las filas traen fecha de aprobación': 'All rows have an approval date',
+  '✅ Todas las filas traen fecha de aprobación': '✅ All rows have an approval date',
+  'Con "Todos los registros" se cuentan igual; con un rango de fechas quedan fuera porque no se pueden ubicar.':
+    'With "All records" they are still counted; with a date range they are left out because they cannot be placed.',
+  'filas sin fecha de aprobación válida (MM/DD/AAAA).': 'rows without a valid approval date (MM/DD/YYYY).',
+  'Se contaron igual porque el reporte es de todos los registros.': 'They were still counted because the report covers all records.',
+  'Quedaron fuera porque no se pueden ubicar en el rango de fechas.': 'They were left out because they cannot be placed in the date range.',
+  'El detalle está en la Auditoría del Reporte Plataformas.': 'Details are in the Platforms Report audit.',
+  'PLATFORM vacío': 'PLATFORM empty',
+  'plataforma no registrada': 'platform not registered',
+  'categoría de película sin duración configurada': 'movie category has no duration configured',
+  'categoría de serie sin duración configurada': 'series category has no duration configured',
+  'versión no registrada': 'version not registered',
+  'sin DURATION': 'no DURATION',
+  'DURATION no es un número de minutos': 'DURATION is not a number of minutes',
 
   // ── Reporte de Editores ───────────────────────────────────────────────
   'Reportes por Editor': 'Editor Reports',
@@ -144,6 +167,29 @@ const es_en = {
   'Una vez cargado, ve a la pestaña "Reportes" para generar análisis': 'Once uploaded, go to the "Reports" tab to generate analysis',
   'Descargar Template Excel': 'Download Excel Template',
   'filas cargadas correctamente. Mapeo guardado.': 'rows loaded successfully. Mapping saved.',
+
+  // ── EditorResolver.jsx (aviso de editores no registrados) ───────────────
+  'Editores no registrados': 'Unregistered editors',
+  'Estos nombres de la columna EDITOR no están en el registro de editores. Indica a quién corresponde cada uno antes de continuar, para que ningún trabajo quede asignado a un nombre equivocado.':
+    'These names in the EDITOR column are not in the editor registry. Tell us who each one is before continuing, so no work is assigned to the wrong name.',
+  'filas no tienen editor — se reportarán como "Sin Asignar".': 'rows have no editor — they will be reported as "Sin Asignar".',
+  'Nombre en el Excel': 'Name in the Excel',
+  'Filas': 'Rows',
+  '¿Qué es?': 'What is it?',
+  'Es el mismo que…': 'Same as…',
+  'Editor nuevo': 'New editor',
+  'Nombre correcto': 'Correct name',
+  'Elige un editor…': 'Choose an editor…',
+  'Sugerencia:': 'Suggestion:',
+  'nuevo': 'new',
+  'Cancelar carga': 'Cancel upload',
+  'Guardar y continuar': 'Save and continue',
+  'falta el nombre del editor nuevo.': 'the new editor name is missing.',
+  'ya está registrado — elige "Es el mismo que".': 'is already registered — choose "Same as".',
+  'está repetido como editor nuevo.': 'is repeated as a new editor.',
+  'elige a qué editor corresponde.': 'choose which editor it is.',
+  'el editor elegido ya no está marcado como nuevo.': 'the chosen editor is no longer marked as new.',
+  'Carga cancelada.': 'Upload cancelled.',
 
   // ── Excel exportado (siempre en inglés, sin importar el idioma en pantalla) ──
   'Resumen': 'Summary',

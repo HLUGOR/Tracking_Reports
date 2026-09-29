@@ -15,6 +15,7 @@ import PlatformReportsEngine from '../../core/reportEngine/PlatformReportsEngine
 import useTranslation from '../../i18n/useTranslation';
 import { translate } from '../../i18n/translations';
 import './EditorReportsView.css';
+import { formatPeriod } from '../../core/utils/dateUtils';
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
@@ -38,7 +39,7 @@ function EditorReportsView() {
 
   const [startDate, setStartDate] = useState(monthAgo);
   const [endDate,   setEndDate]   = useState(today);
-  const [dateField, setDateField] = useState('approved_date');
+  const [dateField, setDateField] = useState('all');
   const chartRef = useRef(null);
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading]       = useState(false);
@@ -112,7 +113,8 @@ function EditorReportsView() {
         },
         effort: effortResult,
         generatedAt: new Date().toISOString(),
-        period: dateField === 'all' ? 'Todos los registros' : `${startDate} → ${endDate}`,
+        period: dateField === 'all' ? 'Todos los registros' : formatPeriod(startDate, endDate),
+        invalidDates: (platResult.audit.invalidApprovedDates || []).reduce((s, d) => s + d.count, 0),
       });
     } catch (err) {
       console.error('Error generando reporte editores:', err);
@@ -142,7 +144,7 @@ function EditorReportsView() {
         { width: 16 },
       ];
 
-      const titleRow = ws2.addRow([`⚡ ${e('Reporte Horas de Esfuerzo')} — ${reportData.period || ''}`]);
+      const titleRow = ws2.addRow([`⚡ ${e('Reporte Horas de Esfuerzo')} — ${e(reportData.period || '')}`]);
       ws2.mergeCells(1, 1, 1, totalCols);
       titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF1E3A8A' } };
       titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } };
@@ -329,6 +331,17 @@ function EditorReportsView() {
       {error && (
         <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.75rem 1rem', color: '#b91c1c', marginBottom: '1rem' }}>
           {error}
+        </div>
+      )}
+
+      {/* Aviso: filas sin fecha de aprobación válida (MM/DD/AAAA) */}
+      {reportData && reportData.invalidDates > 0 && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '0.75rem 1rem', color: '#b91c1c', marginBottom: '1rem', fontSize: '0.88rem' }}>
+          📅 {reportData.invalidDates} {t('filas sin fecha de aprobación válida (MM/DD/AAAA).')}{' '}
+          {dateField === 'all'
+            ? t('Se contaron igual porque el reporte es de todos los registros.')
+            : t('Quedaron fuera porque no se pueden ubicar en el rango de fechas.')}{' '}
+          {t('El detalle está en la Auditoría del Reporte Plataformas.')}
         </div>
       )}
 
