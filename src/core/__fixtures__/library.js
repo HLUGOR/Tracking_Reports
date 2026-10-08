@@ -1,0 +1,50 @@
+/**
+ * Librería y filas de ejemplo para las pruebas automáticas.
+ * Pequeña a propósito: una plataforma por cada lógica, con tasas fáciles de verificar a mano.
+ */
+
+export const library = {
+  platforms: [
+    { id: 1, name: 'LATAM', logica: 'logica_de_versiones', effortGroup: 'LATAM', categorias: [] },
+    { id: 2, name: 'IBERIA', logica: 'iberia_especial', effortGroup: 'IBERIA', categorias: [] },
+    {
+      id: 3, name: 'SONY ONE', logica: 'logica_sin_version', effortGroup: 'DIGITAL',
+      categorias: [
+        { key: 'serie (45 min)', duration: 45, effortRate: 1.5 },
+        { key: 'pelicula (120 min)', duration: 120, effortRate: 3 },
+      ],
+    },
+    { id: 4, name: 'GSN VOD', logica: 'logica_por_duracion', effortGroup: 'COMPLIANCE', platformEffortRate: 1.5, categorias: [] },
+    { id: 5, name: 'COMERCIALES', logica: 'logica_comerciales', effortGroup: 'COMERCIALES', platformEffortRate: 1.25, categorias: [] },
+    { id: 6, name: 'YOUTUBE', logica: 'logica_youtube', effortGroup: 'YOUTUBE', platformEffortRate: 0.5, categorias: [] },
+    { id: 7, name: 'BP&I', logica: 'logica_bp_i', effortGroup: 'BP&I', platformEffortRate: 2, categorias: [] },
+    { id: 8, name: 'FAST GLOBAL', logica: 'logica_duracion_categorias', effortGroup: 'COMPLIANCE', categorias: [] },
+  ],
+  categories: [
+    { id: 10, name: 'serie (30 min)', duration: 30, platformId: 1, effortRate: 1.75 },
+    { id: 11, name: 'serie (60 min)', duration: 60, platformId: 1, effortRate: 1.5 },
+    { id: 12, name: 'pelicula (120 min)', duration: 120, platformId: 1, effortRate: 3 },
+    { id: 20, name: 'serie (60 min)', duration: 60, platformId: 2, effortRate: 1.5 },
+    { id: 30, name: 'Series (30 min)', duration: 30, platformId: 8, effortRate: 1, reprocessRate: 1 },
+    { id: 31, name: 'Series (60 min)', duration: 60, platformId: 8, effortRate: 1, reprocessRate: 1 },
+    { id: 32, name: 'Peliculas (120 min)', duration: 120, platformId: 8, effortRate: 1, reprocessRate: 0.5 },
+  ],
+  versions: [
+    { id: 100, name: 'LAT_ORI_HD 3', categoryId: 10, platformId: 1, duration: 30 },
+    { id: 101, name: 'BRA_ORI_HD 5', categoryId: 11, platformId: 1, duration: 60 },
+    { id: 102, name: 'p- F HD IBERIA', categoryId: 20, platformId: 2, duration: 60 },
+  ],
+  // Nombres tal cual vienen en el input (Apellido Nombre)
+  editors: [{ id: 1, name: 'Segura Ana' }, { id: 2, name: 'Dominguez Adair' }, { id: 3, name: 'Guerrero Jose' }],
+};
+
+/** Fila del input ya mapeada (como la deja la pantalla de carga). */
+export const row = ({
+  platform, version = '', season = '', duration = '', editor = 'Segura Ana',
+  date = '06/15/2026', serie = '', hn = '', clip = '', short = '', excelRow,
+}) => ({
+  ...(excelRow ? { __row: excelRow } : {}),
+  PLATFORM: platform, VERSION: version, SEASON: season, DURATION: duration, EDITOR: editor,
+  APROVED_DATE: date, SERIE: serie, HN: hn, CLIP: clip, SHORT: short,
+  platform, version, season, duration, editor, approved_date: date,
+});

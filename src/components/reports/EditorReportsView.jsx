@@ -32,6 +32,8 @@ function EditorReportsView() {
     platforms:  s.platforms,
     categories: s.categories,
     versions:   s.versions,
+    editors:    s.editors,
+    suffixRules: s.suffixRules,
   }));
 
   const today    = new Date().toISOString().split('T')[0];
@@ -133,7 +135,7 @@ function EditorReportsView() {
     if (reportData.effort?.editors?.length > 0) {
       const ws2 = wb.addWorksheet(e('Horas de Esfuerzo'));
       ws2.views = [{ showGridLines: false }];
-      const groups = reportData.effort.effortGroups.filter(g => g !== 'OTROS');
+      const groups = reportData.effort.effortGroups;
       const totalCols = groups.length + 4;
 
       ws2.columns = [
@@ -406,9 +408,11 @@ function EditorReportsView() {
                         <th style={{ padding: '0.75rem 1.1rem', textAlign: 'left', color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>
                           {t('Editor')}
                         </th>
-                        {reportData.effort.effortGroups.filter(g => g !== 'OTROS').map((g) => (
-                          <th key={g} style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#fff', fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
-                            {t('Horas')} {g}
+                        {reportData.effort.effortGroups.map((g) => (
+                          <th key={g} style={{ padding: '0.6rem 0.7rem', textAlign: 'center', color: '#fff', fontWeight: 700, letterSpacing: '0.03em', lineHeight: 1.25 }}>
+                            {/* 'Horas' arriba y el grupo abajo: columnas más angostas, cabe sin barra */}
+                            <div style={{ fontSize: '0.72rem', fontWeight: 500, opacity: 0.85 }}>{t('Horas')}</div>
+                            <div style={{ whiteSpace: 'nowrap' }}>{g}</div>
                           </th>
                         ))}
                         <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', color: '#fbbf24', fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -437,7 +441,7 @@ function EditorReportsView() {
                           <td style={{ padding: '0.55rem 1.1rem', fontWeight: 600, color: '#1e293b', borderLeft: '3px solid #6366f1' }}>
                             {ed.editor}
                           </td>
-                          {reportData.effort.effortGroups.filter(g => g !== 'OTROS').map((g) => {
+                          {reportData.effort.effortGroups.map((g) => {
                             const h = Math.round((ed.byGroup[g] || 0) * 10) / 10;
                             return (
                               <td key={g} style={{ padding: '0.55rem 0.85rem', textAlign: 'center', color: h > 0 ? '#1e3a8a' : '#cbd5e1', fontWeight: h > 0 ? 600 : 400 }}>
@@ -557,7 +561,7 @@ function EditorReportsView() {
                     <tfoot>
                       <tr style={{ background: '#e2e8f0', fontWeight: 700 }}>
                         <td style={{ padding: '0.6rem 1.1rem', color: '#1e293b' }}>{t('TOTAL')}</td>
-                        {reportData.effort.effortGroups.filter(g => g !== 'OTROS').map((g) => (
+                        {reportData.effort.effortGroups.map((g) => (
                           <td key={g} style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#1e293b' }}>
                             {Math.round(reportData.effort.editors.reduce((s, e) => s + (e.byGroup[g] || 0), 0) * 10) / 10}
                           </td>

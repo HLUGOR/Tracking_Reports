@@ -1,63 +1,107 @@
 /**
  * versionRules.js
- * Fuente única de las reglas de negocio para nombres de versión de plataformas
- * con logica_de_versiones (LATAM, VOD, OFF AIR, etc.).
+ * Reglas de los nombres de versión de las plataformas con versión (LATAM, VOD, OFF AIR...).
  *
- * Numeración cerrada de la operación: solo existen sufijos 1-4, 5-6 y 9-10.
- * No son rangos arbitrarios — la operación no genera otra numeración, así que
- * NO se deben ampliar las bandas sin confirmar con el negocio.
+ * El número final del nombre ("LAT_ORI_HD 3", "BRA_SUB_HD 11") está atado a una duración.
+ * Esa relación es una TABLA, un número por fila, que se edita en Librerías → Versiones →
+ * "Números finales de versión" (libraryStore.suffixRules): [{ id, number, duration }].
  *
- * Antes esta regla vivía copiada en VersionMatcher.js y en LibraryView.jsx
- * (hasta 3 copias de la misma lógica). Este archivo es la única fuente; los
- * demás módulos importan de aquí.
+ * Para qué se usa:
+ *  - Al registrar una versión: da la duración y solo deja elegir categorías de esa duración.
+ *    La categoría (serie o película) la elige el usuario: la duración sola no lo decide.
+ *  - En la auditoría: explica por qué una versión no registrada no se puede crear todavía.
+ * NO se usa para contar: una versión que no está registrada no se cuenta ni se estima.
  */
+
+// Tabla inicial (la que estaba fija en el código). El usuario la amplía en la librería.
+export const DEFAULT_SUFFIX_RULES = [
+  [1, 30], [2, 30], [3, 30], [4, 30],
+  [5, 60], [6, 60],
+  [9, 120], [10, 120],
+].map(([number, duration]) => ({ id: `sfx-${number}`, number, duration }));
+
+/**
+ * Tabla en su forma actual: un número por fila, sin repetidos, ordenada. También acepta el
+ * formato de la primera versión del gestor ({ from, to, duration }), que se expande a un
+ * número por fila.
+ */
+export function normalizeSuffixRules(rules) {
+  const out = [];
+  const seen = new Set();
+  (rules || []).forEach((r) => {
+    const duration = Number(r.duration);
+    const numbers = r.number !== undefined
+      ? [Number(r.number)]
+      : Array.from({ length: Math.max(0, Number(r.to) - Number(r.from) + 1) }, (_, i) => Number(r.from) + i);
+    numbers.forEach((number) => {
+      if (!Number.isInteger(number) || number < 1 || !(duration > 0) || seen.has(number)) return;
+      seen.add(number);
+      out.push({ id: r.number !== undefined ? r.id : `${r.id}-${number}`, number, duration });
+    });
+  });
+  return out.sort((a, b) => a.number - b.number);
+}
 
 const SUFFIX_REGEX = /\s(\d+)(?:\s+\S+)?$/;
 
-/**
- * Lee el sufijo numérico final del nombre y lo traduce a minutos si pertenece
- * a la numeración soportada.
- * @param {string} name
- * @returns {{ suffix: number|null, duration: number|null }}
- *   suffix:   el número encontrado al final del nombre (null si no hay sufijo)
- *   duration: minutos si el sufijo es válido (1-4→30, 5-6→60, 9-10→120); null si no
- */
-function parseSuffix(name) {
+/** Número final del nombre ("LAT_ORI_HD 3" → 3), o null si no tiene. */
+export function suffixNumber(name) {
   const match = String(name || '').match(SUFFIX_REGEX);
-  if (!match) return { suffix: null, duration: null };
-  const n = parseInt(match[1], 10);
-  let duration = null;
-  if (n >= 1 && n <= 4) duration = 30;
-  else if (n >= 5 && n <= 6) duration = 60;
-  else if (n >= 9 && n <= 10) duration = 120;
-  return { suffix: n, duration };
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** Duración para un número final según la tabla (null si no está en la tabla). */
+export function durationForSuffix(n, rules = DEFAULT_SUFFIX_RULES) {
+  const rule = normalizeSuffixRules(rules).find((r) => r.number === n);
+  return rule ? rule.duration : null;
 }
 
 /**
- * Duración por sufijo, con el fallback histórico de 30 min cuando no hay
- * sufijo o el sufijo no es válido. Usado por el motor de reportes (versiones
- * no registradas) y por la importación masiva de versiones.
- * @param {string} name
- * @returns {number} minutos
+ * Duración por número final, con 30 min si no hay número o no está en la tabla. Solo la usa
+ * la carga masiva de versiones para proponer una duración (nunca el conteo).
  */
-export function detectDurationFromSuffix(name) {
-  const { duration } = parseSuffix(name);
-  return duration ?? 30;
+export function detectDurationFromSuffix(name, rules = DEFAULT_SUFFIX_RULES) {
+  const n = suffixNumber(name);
+  return (n === null ? null : durationForSuffix(n, rules)) ?? 30;
 }
 
 /**
- * Valida el sufijo SIN aplicar el fallback de 30 min — distingue "sin sufijo"
- * (ej. códigos estilo IBERIA, que no siguen esta convención) de "sufijo fuera
- * de la numeración soportada" (ej. 7, 8, 11+). Usado por el formulario manual
- * de creación de versión para bloquear altas con numeración inválida.
- * @param {string} name
+ * Valida el número final SIN valor por defecto: distingue "sin número" (ej. códigos de
+ * IBERIA) de "número que no está en la tabla" (ej. 7, 8, 13).
  * @returns {{ duration: number|null, invalidSuffix: number|null }}
  */
-export function checkVersionSuffix(name) {
-  const { suffix, duration } = parseSuffix(name);
-  if (duration !== null) return { duration, invalidSuffix: null };
-  if (suffix === null) return { duration: null, invalidSuffix: null };
-  return { duration: null, invalidSuffix: suffix };
+export function checkVersionSuffix(name, rules = DEFAULT_SUFFIX_RULES) {
+  const n = suffixNumber(name);
+  if (n === null) return { duration: null, invalidSuffix: null };
+  const duration = durationForSuffix(n, rules);
+  return duration !== null ? { duration, invalidSuffix: null } : { duration: null, invalidSuffix: n };
+}
+
+/**
+ * Texto corto de la tabla para mensajes, juntando números seguidos con la misma duración:
+ * "1-4 → 30 min, 5-6 → 60 min, 9-11 → 120 min".
+ */
+export function describeSuffixRules(rules = DEFAULT_SUFFIX_RULES) {
+  const list = normalizeSuffixRules(rules);
+  const parts = [];
+  list.forEach((r, i) => {
+    const prev = list[i - 1];
+    const last = parts[parts.length - 1];
+    if (last && prev && r.number === prev.number + 1 && r.duration === prev.duration) last.to = r.number;
+    else parts.push({ from: r.number, to: r.number, duration: r.duration });
+  });
+  return parts.map((p) => `${p.from === p.to ? p.from : `${p.from}-${p.to}`} → ${p.duration} min`).join(', ');
+}
+
+/** Problema de un número nuevo contra la tabla (null si está bien). */
+export function suffixRuleProblem(rule, rules = []) {
+  const number = Number(rule.number);
+  const duration = Number(rule.duration);
+  if (!Number.isInteger(number) || number < 1) return 'El número final debe ser un entero desde 1.';
+  if (!Number.isInteger(duration) || duration < 1) return 'La duración debe ser un número de minutos mayor que 0.';
+  const taken = normalizeSuffixRules(rules).find((r) => r.number === number);
+  if (taken) return `El número ${number} ya está en la tabla (${taken.duration} min).`;
+  return null;
 }
 
 /**

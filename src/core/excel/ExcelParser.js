@@ -48,16 +48,19 @@ class ExcelParser {
           const headers = rows[headerRow] || [];
 
           // Datos (desde headerRow+1 en adelante)
-          const dataRows = rows.slice(headerRow + 1).map((row) => {
-            const obj = {};
+          // __row = número de fila en el Excel (encabezado en la fila headerRow + 1), para
+          // que la auditoría diga exactamente qué fila del input hay que corregir.
+          const dataRows = rows.slice(headerRow + 1).map((row, i) => {
+            const obj = { __row: headerRow + 2 + i };
             headers.forEach((header, idx) => {
               const key = trimValues && typeof header === 'string' 
                 ? header.trim() 
                 : header;
               const value = row[idx];
-              obj[key] = trimValues && typeof value === 'string'
-                ? value.trim()
-                : value;
+              const text = trimValues && typeof value === 'string' ? value.trim() : value;
+              // La macro que arma el input escribe "NAN" / "nan" en las celdas vacías: se
+              // trata como celda vacía (DURATION "NAN" = sin DURATION, EDITOR "nan" = sin EDITOR).
+              obj[key] = typeof text === 'string' && /^nan$/i.test(text.trim()) ? '' : text;
             });
             return obj;
           });

@@ -17,6 +17,8 @@ function SerieReportsView() {
   const versions   = libraryStore((s) => s.versions);
   const categories = libraryStore((s) => s.categories);
   const platforms  = libraryStore((s) => s.platforms);
+  const editors    = libraryStore((s) => s.editors);
+  const suffixRules = libraryStore((s) => s.suffixRules);
 
   const today    = new Date().toISOString().split('T')[0];
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
@@ -55,9 +57,10 @@ function SerieReportsView() {
         dateField !== 'all' ? startDate : null,
         dateField !== 'all' ? endDate   : null,
         dateField,
-        { versions, categories, platforms }
+        { versions, categories, platforms, editors, suffixRules }
       );
-      setReportData(result);
+      // Período fijo al generar (no cambia si después mueven las fechas)
+      setReportData({ ...result, periodLabel: dateField === 'all' ? null : formatPeriod(startDate, endDate) });
     } catch (err) {
       setError('Error: ' + err.message);
     } finally {
@@ -100,9 +103,7 @@ function SerieReportsView() {
     ws.columns = [{ width: 42 }, { width: 32 }, { width: 18 }];
 
     // Título
-    const periodoStr = dateField === 'all'
-      ? en('Todos los registros')
-      : formatPeriod(startDate, endDate);
+    const periodoStr = reportData.periodLabel || en('Todos los registros');
 
     const titleRow = ws.addRow([`${en('REPORTE POR SERIE')}  •  ${periodoStr}`]);
     ws.mergeCells('A1:C1');
@@ -260,7 +261,7 @@ function SerieReportsView() {
       {reportData && (
         <>
           <div className="sr-summary">
-            <span>🗓 {t('Período:')} {dateField === 'all' ? t('Todos los registros') : formatPeriod(startDate, endDate)}</span>
+            <span>🗓 {t('Período:')} {reportData.periodLabel || t('Todos los registros')}</span>
             <span>📺 {t('Series únicas:')} <strong>{reportData.totalSeries}</strong></span>
             <span>📦 {t('Total assets:')} <strong>{reportData.grandCount}</strong></span>
             <span>⏱ {t('Horas de Esfuerzo:')} <strong>{reportData.grandEffortHours}h</strong></span>

@@ -11,8 +11,7 @@ import './ExcelUpload.css';
 import { downloadTemplateExcel } from '../../core/excel/downloadTemplate';
 import useTranslation from '../../i18n/useTranslation';
 import libraryStore from '../../store/libraryStore';
-import { findUnknownEditors, canonicalizeEditors } from '../../core/utils/editorRegistry';
-import EditorResolver from './EditorResolver';
+import { canonicalizeEditors } from '../../core/utils/editorRegistry';
 
 function ExcelUpload({ onSuccess }) {
   const { t } = useTranslation();
@@ -24,9 +23,6 @@ function ExcelUpload({ onSuccess }) {
   const [showColumnMapper, setShowColumnMapper] = useState(false);
   const [parsedData, setParsedData] = useState(null); // Guardar datos parseados mientras se mapea
   const [currentFileName, setCurrentFileName] = useState('');
-  // Filas ya mapeadas que esperan a que se resuelvan los editores desconocidos
-  const [pendingRows, setPendingRows] = useState(null);
-  const [editorCheck, setEditorCheck] = useState(null); // { unknown, blankCount }
 
   // Extraer acciones del store al nivel del componente (no dentro de callbacks)
   const setExcelRows = excelStore((state) => state.setExcelRows);
@@ -95,35 +91,10 @@ function ExcelUpload({ onSuccess }) {
       return newRow;
     });
 
-    // Validar editores contra el registro antes de cargar: si hay nombres que no
-    // están registrados, la carga se detiene hasta que el usuario los resuelva.
-    const editors = libraryStore.getState().editors;
-    const check = findUnknownEditors(mappedRows, editors);
-    if (check.unknown.length > 0) {
-      setPendingRows(mappedRows);
-      setEditorCheck(check);
-      return;
-    }
-    finishLoad(canonicalizeEditors(mappedRows, editors));
-  };
-
-  const handleEditorsResolved = (resolutions) => {
-    libraryStore.getState().applyEditorResolutions(resolutions);
-    const editors = libraryStore.getState().editors;
-    const rows = pendingRows;
-    setEditorCheck(null);
-    setPendingRows(null);
-    finishLoad(canonicalizeEditors(rows, editors));
-  };
-
-  const handleEditorsCancel = () => {
-    setEditorCheck(null);
-    setPendingRows(null);
-    setParsedData(null);
-    setCurrentFileName('');
-    setMsgType('warning');
-    setMessage(`⚠️ ${t('Carga cancelada.')}`);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    // Editores: solo se ajustan mayúsculas/espacios al nombre registrado. Un nombre que
+    // no está registrado tal cual ("Apellido Nombre") no se cuenta: la Auditoría del
+    // reporte dice en qué filas del Excel está, para corregirlo en el input.
+    finishLoad(canonicalizeEditors(mappedRows, libraryStore.getState().editors));
   };
 
   const finishLoad = (rows) => {
@@ -290,17 +261,6 @@ function ExcelUpload({ onSuccess }) {
           headers={parsedData.headers}
           onMappingComplete={handleMappingComplete}
           onCancel={handleMappingCancel}
-        />
-      )}
-
-      {/* Aviso de editores no registrados — la carga no continúa hasta resolverlo */}
-      {editorCheck && (
-        <EditorResolver
-          unknown={editorCheck.unknown}
-          blankCount={editorCheck.blankCount}
-          existingEditors={libraryStore.getState().editors}
-          onConfirm={handleEditorsResolved}
-          onCancel={handleEditorsCancel}
         />
       )}
     </div>

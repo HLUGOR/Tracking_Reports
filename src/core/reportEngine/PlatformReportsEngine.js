@@ -6,20 +6,45 @@
  * Fuente de datos: Excel (excelStore) + Librería (libraryStore) en lugar de SQLite.
  *
  * Lógicas soportadas:
- *   - logica_de_versiones : busca VERSION en la librería → categoría + duración reales
+ *   - logica_de_versiones : busca VERSION en la librería → categoría + duración reales.
+ *                           Si no está registrada NO se cuenta (no se estima nada).
  *   - logica_sin_version  : usa columna SEASON → serie (season != '0') o película (season = '0')
  *   - iberia_especial     : igual que logica_de_versiones, pero sin fallback (si no está registrada, no cuenta)
  *   - logica_comerciales  : suma DURATION en timecode (HH:MM:SS), cuenta assets
  *   - logica_bp_i         : suma MINUTOS netos (números simples), cuenta assets
  *   - logica_por_duracion : suma DURATION (minutos o tiempo HH:MM:SS), cuenta assets;
  *                           horas = minutos ÷ 60 × tasa de la plataforma (COMPLIANCE)
+ *   - logica_duracion_categorias : DURATION decide la categoría (la de la librería con esa
+ *                           duración exacta, ej. 30/60/120) y cada categoría tiene su tasa.
+ *                           VERSION = "REPROSS" marca la fila como REPROCESO: va a su
+ *                           columna "R" (clave "R:<id categoría>") con su propia tasa.
  *
  * Columnas esperadas del Excel (post-mapeo por ColumnMapper):
  *   EDITOR, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE, DURATION (comerciales), MINUTOS (bp&i)
  */
 
 import VersionMatcher from './VersionMatcher';
+import { checkVersionSuffix, DEFAULT_SUFFIX_RULES } from './versionRules';
 import { parseInputDate, approvedDateOf } from '../utils/dateUtils';
+import { buildEditorIndex, editorKey } from '../utils/editorRegistry';
+
+// Agrupa filas de auditoría por plataforma + motivo:
+// [{ platform, motivo, count, values: [hasta 10 valores distintos], rows: [nº de fila del Excel] }],
+// de más a menos filas.
+const groupByReason = (list) => Object.values(list.reduce((acc, d) => {
+  const k = `${d.platform}|${d.motivo}`;
+  if (!acc[k]) acc[k] = { platform: d.platform, motivo: d.motivo, count: 0, values: [], rows: [] };
+  acc[k].count++;
+  if (d.value && acc[k].values.length < 10 && !acc[k].values.includes(d.value)) acc[k].values.push(d.value);
+  if (d.rowNum) acc[k].rows.push(d.rowNum);
+  return acc;
+}, {})).sort((a, b) => b.count - a.count);
+
+// Reproceso (logica_duracion_categorias): VERSION = "REPROSS". En byCategory la fila va
+// a la clave "R:<id de la categoría>" para contarla y tasarla aparte de lo nuevo.
+export const REPROCESS_MARK = 'REPROSS';
+export const REPROCESS_PREFIX = 'R:';
+export const isReprocessKey = (key) => String(key).startsWith(REPROCESS_PREFIX);
 
 // Lógica por defecto para plataformas no configuradas explícitamente
 const DEFAULT_LOGICA = 'logica_de_versiones';
@@ -31,13 +56,24 @@ class PlatformReportsEngine {
    * @param {Array}  rows       - Filas del Excel (ya mapeadas por ColumnMapper)
    * @param {Date}   startDate  - Fecha de inicio del filtro
    * @param {Date}   endDate    - Fecha de fin del filtro
-   * @param {Object} library    - { platforms, categories, versions } de libraryStore
+   * @param {Object} library    - { platforms, categories, versions, editors } de libraryStore.
+   *                              Si trae editors, el EDITOR de cada fila tiene que estar
+   *                              registrado (Apellido Nombre); si no, la fila no se cuenta.
    * @param {string} dateField  - Columna de fecha a usar para filtrar (default: 'approved_date')
    *                              Opciones: 'approved_date', 'air_date', 'all' (sin filtro de fecha)
    * @returns {Object} resultado del reporte
    */
   static buildReport(rows, startDate, endDate, library = {}, dateField = 'approved_date') {
     const { platforms = [], categories = [], versions = [] } = library;
+    // Registro de editores (solo si la librería lo trae): nombre exacto "Apellido Nombre"
+    const editorIndex = Array.isArray(library.editors) ? buildEditorIndex(library.editors) : null;
+    // Tabla de números finales de versión → duración (Librerías → Versiones)
+    const suffixRules = library.suffixRules || DEFAULT_SUFFIX_RULES;
+    // Motivo de auditoría de una versión no registrada: si su número final no está en la
+    // tabla, hay que agregarlo primero; si está, solo falta crear la versión.
+    const unregisteredMotivo = (version) => (checkVersionSuffix(version, suffixRules).invalidSuffix !== null
+      ? 'versión no registrada — su número final no está en la tabla (agrégalo en Librerías → Versiones → Números finales) y luego créala'
+      : 'versión no registrada — créala en Librerías → Versiones');
 
     // Construir mapa de plataformas válidas: solo las registradas en libraryStore
     const validPlatforms = new Set(
@@ -109,21 +145,27 @@ class PlatformReportsEngine {
     const end = endDay ? new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate(), 23, 59, 59, 999) : null;
 
     // Conjuntos de auditoría.
-    // Separados a propósito: "fallback" SÍ suma minutos al editor (duración adivinada),
-    // "discarded" NO suma nada — la fila se excluye del reporte por completo. Mezclarlos
-    // en una sola lista hace que un editor sin crédito por su trabajo (IBERIA no
-    // registrada) se vea igual que uno con una estimación (LATAM/VOD no registrada).
-    const unregisteredVersionsFallback = new Set();
+    // Regla del negocio: una VERSION que no está en la librería no se cuenta, no se suma
+    // ni se muestra, y no se le estima ninguna duración. Solo aparece en la auditoría.
     const unregisteredVersionsDiscarded = new Set();
     const unregisteredPlatforms = new Set();
     // Filas cuya APPROVED_DATE está vacía o no es una fecha MM/DD/AAAA válida.
     // valor tal como vino → cantidad de filas
-    const invalidApprovedDates = {};
+    const invalidApprovedDates = {}; // valor → { count, rows }
+    // Filas dentro del rango de fechas (con "Todos los registros", todas)
+    let rowsInRange = 0;
+    // Filas que sí se contaron (dentro del rango y sin ningún problema)
+    let countedRows = 0;
     const discardedRows = [];
     // Registra una fila no contada con su motivo (para el desglose de la auditoría).
     // motivo: texto fijo en español (se traduce en la vista); value: dato de la fila que lo causó.
     const discard = (row, platform, motivo, value = '') => {
-      discardedRows.push({ row, platform, motivo, value });
+      discardedRows.push({ row, platform, motivo, value, rowNum: row.__row });
+    };
+    // Filas que SÍ se cuentan pero con un dato que hay que revisar (alerta en la auditoría)
+    const warnedRows = [];
+    const warn = (row, platform, motivo, value = '') => {
+      warnedRows.push({ row, platform, motivo, value, rowNum: row.__row });
     };
 
     // Mapa principal: platform → editor → category → { count, minutes }
@@ -131,7 +173,8 @@ class PlatformReportsEngine {
 
     rows.forEach((row) => {
       // ── Leer y normalizar campos del Excel (post-mapeo) ──────────────────
-      const editor = VersionMatcher.normalizeEditorName(row.editor || row.EDITOR);
+      const rawEditor = String(row.editor ?? row.EDITOR ?? '').trim();
+      let editor = VersionMatcher.normalizeEditorName(rawEditor);
       const version = String(row.version || row.VERSION || '').trim();
       const platform = String(row.platform || row.PLATFORM || '').trim().toUpperCase();
       const season = String(row.season || row.SEASON || '').trim();
@@ -141,7 +184,9 @@ class PlatformReportsEngine {
       const approvedRaw = approvedDateOf(row);
       if (!parseInputDate(approvedRaw)) {
         const shown = String(approvedRaw ?? '').trim();
-        invalidApprovedDates[shown] = (invalidApprovedDates[shown] || 0) + 1;
+        invalidApprovedDates[shown] ??= { count: 0, rows: [] };
+        invalidApprovedDates[shown].count++;
+        if (row.__row) invalidApprovedDates[shown].rows.push(row.__row);
       }
 
       // ── Filtro por fecha ('approved_date', 'air_date' o 'all' = sin filtro) ──
@@ -156,6 +201,7 @@ class PlatformReportsEngine {
         }
         if (!start || !end || rowDate < start || rowDate > end) return;
       }
+      rowsInRange++;
 
       // ── Validar plataforma ────────────────────────────────────────────────
       if (!platform) {
@@ -166,6 +212,20 @@ class PlatformReportsEngine {
         unregisteredPlatforms.add(platform);
         discard(row, platform, 'plataforma no registrada');
         return;
+      }
+
+      // ── Validar editor: nombre registrado tal cual ("Apellido Nombre") ────────
+      if (editorIndex) {
+        if (!rawEditor) {
+          discard(row, platform, 'sin EDITOR');
+          return;
+        }
+        const registered = editorIndex[editorKey(rawEditor)];
+        if (!registered) {
+          discard(row, platform, 'editor no registrado — corregir en el input (Apellido Nombre)', rawEditor);
+          return;
+        }
+        editor = registered;
       }
 
       // ── Determinar lógica de la plataforma ────────────────────────────────
@@ -186,13 +246,39 @@ class PlatformReportsEngine {
             : 'categoría de serie sin duración configurada');
           return;
         }
+      } else if (logica === 'logica_duracion_categorias') {
+        // DURATION decide la categoría: la de esta plataforma con esa duración exacta.
+        // Sin categoría registrada para esa duración → no cuenta y queda en la auditoría
+        // (las categorías se agregan en la librería, no se adivinan).
+        const durationRaw = String(row.duration || row.DURATION || '').trim();
+        const minutes = PlatformReportsEngine.parseMinutes(durationRaw);
+        if (minutes <= 0) {
+          discard(row, platform, PlatformReportsEngine.durationProblem(durationRaw), durationRaw);
+          return;
+        }
+        const cat = (platformCategoryMap[platform] || []).find((c) => c.duration === minutes);
+        if (!cat) {
+          discard(row, platform, 'duración sin categoría registrada', durationRaw);
+          return;
+        }
+        const isReprocess = version.toUpperCase() === REPROCESS_MARK;
+        if (version && !isReprocess) warn(row, platform, 'VERSION no reconocida (dato basura; se contó como nuevo)', version);
+        classified = {
+          category_key: isReprocess ? `${REPROCESS_PREFIX}${cat.id}` : cat.id,
+          duration_minutes: minutes,
+          duration_seconds: 0,
+          isDurCat: true,
+        };
+      } else if ((logica === 'iberia_especial' || logica === 'logica_de_versiones') && !version) {
+        discard(row, platform, 'sin VERSION');
+        return;
       } else if (logica === 'iberia_especial') {
         // Igual que logica_de_versiones (busca en la librería), pero SIN fallback
         // numérico por sufijo: si el nombre no está registrado, no cuenta.
         classified = VersionMatcher.classifyIberia(version, versions, categories, cfg?.id);
         if (!classified.registered) {
           unregisteredVersionsDiscarded.add(version);
-          discard(row, platform, 'versión no registrada', version);
+          discard(row, platform, unregisteredMotivo(version), version);
           return;
         }
       } else if (logica === 'logica_comerciales') {
@@ -200,6 +286,14 @@ class PlatformReportsEngine {
         // No usa VERSION ni SEASON. DURATION está en formato HH:MM:SS o HH:MM:SS:FF.
         const durationRaw = String(row.duration || row.DURATION || '').trim();
         const durationSecs = PlatformReportsEngine.parseTimecode(durationRaw);
+        // Cómo calcular COMERCIALES está pendiente (reunión TQC): la pieza se sigue
+        // contando, pero si la duración no es un tiempo válido queda como alerta.
+        if (!durationRaw) warn(row, platform, 'sin DURATION (0 minutos)');
+        else if (!PlatformReportsEngine.isValidTimecode(durationRaw)) {
+          const problem = PlatformReportsEngine.durationProblem(durationRaw);
+          warn(row, platform, problem === 'DURATION no es un número de minutos'
+            ? 'DURATION no es un tiempo HH:MM:SS' : problem, durationRaw);
+        }
         classified = {
           category_key: null,
           duration_minutes: durationSecs / 60,
@@ -229,7 +323,13 @@ class PlatformReportsEngine {
           (k) => ['minutos', 'duration'].includes(k.trim().toLowerCase())
         );
         const minutesRaw = String(minutosKey ? row[minutosKey] : '').trim();
-        const minutes = parseFloat(minutesRaw) || 0;
+        // Acepta minutos ("30") o tiempo ("00:30:00"), igual que logica_por_duracion.
+        // Vacía o con texto: no se cuenta y queda en la auditoría (antes contaba 0 min).
+        const minutes = PlatformReportsEngine.parseMinutes(minutesRaw);
+        if (minutes <= 0) {
+          discard(row, platform, PlatformReportsEngine.durationProblem(minutesRaw), minutesRaw);
+          return;
+        }
         classified = {
           category_key: null,
           duration_minutes: minutes,
@@ -242,12 +342,9 @@ class PlatformReportsEngine {
         // Sin valor por defecto: si DURATION está vacía o en 0, la fila no se cuenta y
         // queda en la auditoría.
         const durationRaw = String(row.duration || row.DURATION || '').trim();
-        const minutes = durationRaw.includes(':')
-          ? PlatformReportsEngine.parseTimecode(durationRaw) / 60
-          : (parseFloat(durationRaw) || 0);
+        const minutes = PlatformReportsEngine.parseMinutes(durationRaw);
         if (minutes <= 0) {
-          if (durationRaw) discard(row, platform, 'DURATION no es un número de minutos', durationRaw);
-          else discard(row, platform, 'sin DURATION');
+          discard(row, platform, PlatformReportsEngine.durationProblem(durationRaw), durationRaw);
           return;
         }
         classified = {
@@ -257,19 +354,22 @@ class PlatformReportsEngine {
           isPorDuracion: true,
         };
       } else {
-        // logica_de_versiones: buscar en librería primero.
-        // Si no está → fallback numérico por sufijo (replica Tracking_Project).
-        // La fila SÍ suma minutos (con la duración del fallback), pero se registra en audit.
+        // logica_de_versiones: la VERSION tiene que estar en la librería. Si no está,
+        // no se cuenta (antes se estimaba la duración por el número final del nombre).
         classified = VersionMatcher.classify(version, versions, categories, cfg?.id);
         if (!classified.registered) {
-          unregisteredVersionsFallback.add(version);
-          // classified.duration_minutes ya viene del fallback numérico (no es 0)
+          unregisteredVersionsDiscarded.add(version);
+          discard(row, platform, unregisteredMotivo(version), version);
+          return;
         }
       }
 
       // ── Solo contar si hay classified; para comerciales/BP&I/YouTube se permiten duraciones 0 ──
       if (!classified) return;
-      if (!classified.isComerciales && !classified.isBPI && !classified.isYoutube && classified.duration_minutes <= 0) return;
+      if (!classified.isComerciales && !classified.isBPI && !classified.isYoutube && classified.duration_minutes <= 0) {
+        discard(row, platform, 'versión sin duración configurada', version);
+        return;
+      }
 
       const { category_key: rawCategoryKey, duration_minutes } = classified;
 
@@ -291,7 +391,9 @@ class PlatformReportsEngine {
       // por_duracion no usa categorías: los minutos van directo al total del editor.
       const category_key = classified.isPorDuracion
         ? null
-        : resolveCategoryForPlatform(rawCategoryKey, duration_minutes, effectivePlatform, platform);
+        : classified.isDurCat
+          ? rawCategoryKey
+          : resolveCategoryForPlatform(rawCategoryKey, duration_minutes, effectivePlatform, platform);
 
       // ── Acumular en platformMap ───────────────────────────────────────────
       if (!platformMap[effectivePlatform]) platformMap[effectivePlatform] = {};
@@ -328,6 +430,7 @@ class PlatformReportsEngine {
       }
       platformMap[effectivePlatform][editor].totalMinutes += duration_minutes;
       platformMap[effectivePlatform][editor].totalSeconds += (classified.duration_seconds || 0);
+      countedRows++;
     });
 
     // ── Construir output final ────────────────────────────────────────────
@@ -370,18 +473,25 @@ class PlatformReportsEngine {
               ? platformCategoryMap[platform]
               : platformCategoryMap[subPlatformParent[platform]] || [];
 
-          categoriesResult = resolvedCatMap.map((c) => {
+          categoriesResult = resolvedCatMap.flatMap((c) => {
             let duration = c.duration || 0;
             if (!duration) {
               const m = (c.name || '').match(/(\d+)\s*(?:min)?\s*$/i);
               if (m) duration = Number(m[1]);
             }
-            return { category_key: c.id, label: c.name, duration_minutes: duration, color: c.color };
+            const base = { category_key: c.id, label: c.name, duration_minutes: duration, color: c.color };
+            // Columna de reproceso solo si esta categoría tiene reproceso en el período
+            const rKey = `${REPROCESS_PREFIX}${c.id}`;
+            return totalByCategory[rKey]
+              ? [base, { ...base, category_key: rKey, isReprocess: true, baseKey: c.id }]
+              : [base];
           });
         }
+        const hasReprocess = Object.keys(totalByCategory).some(isReprocessKey);
 
         return { platform, logica, editors, totalCount, totalMinutes, totalSeconds, totalByCategory,
           categories: categoriesResult,
+          hasReprocess,
         };
       })
       .sort((a, b) => b.totalMinutes - a.totalMinutes);
@@ -393,35 +503,27 @@ class PlatformReportsEngine {
 
     return {
       period: { start, end },
+      rowsInRange,
+      countedRows,
       platforms: platformsResult,
       grandTotal,
       audit: {
-        unregisteredVersionsFallback: [...unregisteredVersionsFallback],
         unregisteredVersionsDiscarded: [...unregisteredVersionsDiscarded],
         unregisteredPlatforms: [...unregisteredPlatforms],
         // [{ value: 'texto que vino' ('' = vacía), count }]
         invalidApprovedDates: Object.entries(invalidApprovedDates)
-          .map(([value, count]) => ({ value, count }))
+          .map(([value, d]) => ({ value, count: d.count, rows: d.rows }))
           .sort((a, b) => b.count - a.count),
         discardedCount: discardedRows.length,
         // Desglose: [{ platform, motivo, count, values: [hasta 10 valores distintos] }]
-        discardedByReason: Object.values(discardedRows.reduce((acc, d) => {
-          const k = `${d.platform}|${d.motivo}`;
-          if (!acc[k]) acc[k] = { platform: d.platform, motivo: d.motivo, count: 0, values: [] };
-          acc[k].count++;
-          if (d.value && acc[k].values.length < 10 && !acc[k].values.includes(d.value)) acc[k].values.push(d.value);
-          return acc;
-        }, {})).sort((a, b) => b.count - a.count),
+        discardedByReason: groupByReason(discardedRows),
+        // Filas contadas con alerta (mismo formato)
+        warnings: groupByReason(warnedRows),
       },
       generatedAt: new Date().toISOString(),
     };
   }
 
-  /**
-   * Parsea un timecode HH:MM:SS o HH:MM:SS:FF a segundos totales.
-   * @param {string} tc - timecode (ej: "00:01:30:00" o "00:01:30")
-   * @returns {number} segundos totales
-   */
   /**
    * Minutos y horas de esfuerzo de UNA fila, calculados con exactamente el mismo código
    * que los Reportes Plataformas y Editores. Lo usa el Reporte Series para que una fila
@@ -444,6 +546,40 @@ class PlatformReportsEngine {
     return { minutes, hours };
   }
 
+  /**
+   * Minutos de un valor de DURATION: número de minutos ("30") o tiempo ("00:30:00" /
+   * "00:30:00:00"). Devuelve 0 si está vacío o no es ninguna de las dos cosas.
+   */
+  static parseMinutes(raw) {
+    const s = String(raw ?? '').trim();
+    if (!s) return 0;
+    if (s.includes(':')) return this.isValidTimecode(s) ? this.parseTimecode(s) / 60 : 0;
+    return /^\d+(\.\d+)?$/.test(s) ? parseFloat(s) : 0;
+  }
+
+  /**
+   * Motivo de auditoría para una DURATION que no se pudo leer:
+   *  - tiempo con minutos o segundos mayores a 59 (ej. "00:90:00")
+   *  - cualquier otro texto (ej. "NAN", "REPROSS")
+   */
+  static durationProblem(raw) {
+    const s = String(raw ?? '').trim();
+    if (!s) return 'sin DURATION';
+    if (/^\d{1,2}:\d{2}:\d{2}(:\d{2})?$/.test(s)) return 'DURATION con tiempo inválido (minutos o segundos mayores a 59)';
+    return 'DURATION no es un número de minutos';
+  }
+
+  /** Tiempo HH:MM:SS o HH:MM:SS:FF bien formado (minutos y segundos de 00 a 59). */
+  static isValidTimecode(tc) {
+    const m = String(tc ?? '').trim().match(/^(\d{1,2}):(\d{2}):(\d{2})(?::\d{2})?$/);
+    return !!m && Number(m[2]) < 60 && Number(m[3]) < 60;
+  }
+
+  /**
+   * Parsea un timecode HH:MM:SS o HH:MM:SS:FF a segundos totales.
+   * @param {string} tc - timecode (ej: "00:01:30:00" o "00:01:30")
+   * @returns {number} segundos totales
+   */
   static parseTimecode(tc) {
     if (!tc) return 0;
     const parts = String(tc).trim().split(':');
@@ -488,6 +624,7 @@ class PlatformReportsEngine {
     libCategories.forEach((c) => {
       const dur = Number(c.duration) || 0;
       categoryInfoMap[String(c.id)] = { effortRate: rateOrStandard(c.effortRate), durationHours: dur / 60 };
+      categoryInfoMap[`${REPROCESS_PREFIX}${c.id}`] = { effortRate: rateOrStandard(c.reprocessRate), durationHours: dur / 60 };
     });
 
     // platformName → { effortGroup, logica, platformEffortRate, rateMap }
@@ -532,12 +669,17 @@ class PlatformReportsEngine {
 
     // editor → { byGroup: { groupName: hours }, totalHours, pctOcupacion, pctFreeTime }
     const editorMap = {};
+    // Grupos con horas de reproceso: su columna "<grupo> REPROSS" va justo después
+    const reprocessGroups = new Set();
+    // Grupos de las plataformas que vienen en el input: solo esos se muestran como columnas
+    const usedGroups = new Set();
 
     (platformResult.platforms || []).forEach((plt) => {
       const platName = (plt.platform || '').trim().toUpperCase();
       const parentName = subPlatformParentMap[platName];
       const cfg = platCfgMap[platName] || (parentName ? platCfgMap[parentName] : null) || { effortGroup: 'OTROS', logica: 'logica_de_versiones', platformEffortRate: 1, rateMap: categoryInfoMap };
       const { effortGroup, logica, platformEffortRate, rateMap } = cfg;
+      usedGroups.add(effortGroup);
 
       plt.editors.forEach((ed) => {
         if (!editorMap[ed.editor]) {
@@ -559,7 +701,16 @@ class PlatformReportsEngine {
           // count × (duracion_min / 60) × effortRate, buscando en el mapa único de tarifas.
           Object.entries(ed.byCategory || {}).forEach(([catKey, catData]) => {
             const info = rateMap[String(catKey)];
-            if (info != null) hours += (catData.count || 0) * info.durationHours * info.effortRate;
+            if (info == null) return;
+            const h = (catData.count || 0) * info.durationHours * info.effortRate;
+            if (isReprocessKey(catKey)) {
+              // Reproceso: columna aparte (por ahora, hasta que TQC confirme)
+              const rGroup = `${effortGroup} ${REPROCESS_MARK}`;
+              reprocessGroups.add(effortGroup);
+              editorMap[ed.editor].byGroup[rGroup] = (editorMap[ed.editor].byGroup[rGroup] || 0) + h;
+            } else {
+              hours += h;
+            }
           });
         }
 
@@ -582,7 +733,10 @@ class PlatformReportsEngine {
       })
       .sort((a, b) => b.totalHours - a.totalHours);
 
-    return { editors, effortGroups, baseHours };
+    // Solo columnas de grupos presentes en el input (OTROS incluido si alguna plataforma
+    // no tiene grupo: sus horas suman al total, así que tienen que verse).
+    const allGroups = effortGroups.filter((g) => usedGroups.has(g)).flatMap((g) => (reprocessGroups.has(g) ? [g, `${g} ${REPROCESS_MARK}`] : [g]));
+    return { editors, effortGroups: allGroups, baseHours };
   }
 }
 

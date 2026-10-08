@@ -47,7 +47,9 @@ body {
 }
 
 .header-content {
-  max-width: 1400px;
+  /* Ancho completo: los reportes (sobre todo Editores) tienen muchas columnas */
+  max-width: none;
+  padding: 0 1rem;
   margin: 0 auto;
 }
 
@@ -67,11 +69,11 @@ body {
 .app-main {
   display: flex;
   flex: 1;
-  max-width: 1400px;
+  max-width: none;
   margin: 0 auto;
   width: 100%;
   gap: 2rem;
-  padding: 2rem 1rem;
+  padding: 2rem 2rem;
 }
 
 /* Sidebar */

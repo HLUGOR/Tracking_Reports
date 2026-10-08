@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
 import { normalizePlatformCasillas } from '../core/utils/platformCasillas';
+import { DEFAULT_SUFFIX_RULES, normalizeSuffixRules } from '../core/reportEngine/versionRules';
 
 // Generador de IDs únicos: siempre crece (cada id es mayor que el anterior), así dos
 // elementos creados en el mismo milisegundo nunca comparten id. Date.now() × 1000 queda
@@ -41,12 +42,15 @@ const libraryStore = create(
         categories: [], // [{id, name, color, duration, platformId}]
         versions: [], // [{id, name, categoryId, platformId, duration}]
         columnMappings: [], // [{id, fileName, mapping: {editor: 'col1', date: 'col2'...}}]
-        editors: [], // [{id, name, aliases: ['luiis', ...]}] — nombre correcto + variantes conocidas
+        editors: [], // [{id, name}] — nombre correcto "Apellido Nombre" (tal cual debe venir en el input)
+        // Números finales de versión → duración, un número por fila: [{id, number, duration}]
+        // (ver versionRules.js)
+        suffixRules: DEFAULT_SUFFIX_RULES,
 
         // ===== EDITORES =====
-        addEditor: (name, aliases = []) =>
+        addEditor: (name) =>
           set((state) => ({
-            editors: [...state.editors, { id: uniqueId(), name: name.trim(), aliases }],
+            editors: [...state.editors, { id: uniqueId(), name: name.trim() }],
           })),
 
         updateEditor: (id, updates) =>
@@ -58,20 +62,15 @@ const libraryStore = create(
           set((state) => ({ editors: state.editors.filter((e) => e.id !== id) })),
 
         // Aplica de una vez lo que el usuario decidió en el aviso de editores desconocidos:
-        // newEditors: [{ name, aliases }]; aliasesByName: { 'Luis': ['luiis'], ... }
-        applyEditorResolutions: ({ newEditors = [], aliasesByName = {} }) =>
-          set((state) => {
-            const editors = [
-              ...state.editors,
-              ...newEditors.map((e) => ({ id: uniqueId(), name: e.name.trim(), aliases: e.aliases || [] })),
-            ];
-            return {
-              editors: editors.map((e) => {
-                const extra = aliasesByName[e.name] || [];
-                return extra.length ? { ...e, aliases: [...new Set([...(e.aliases || []), ...extra])] } : e;
-              }),
-            };
-          }),
+        // ===== NÚMEROS FINALES DE VERSIÓN =====
+        addSuffixRule: ({ number, duration }) =>
+          set((state) => ({
+            suffixRules: normalizeSuffixRules([...state.suffixRules, { id: uniqueId(), number, duration }]),
+          })),
+        updateSuffixRule: (id, updates) =>
+          set((state) => ({ suffixRules: state.suffixRules.map((r) => (r.id === id ? { ...r, ...updates } : r)) })),
+        deleteSuffixRule: (id) =>
+          set((state) => ({ suffixRules: state.suffixRules.filter((r) => r.id !== id) })),
 
         // ===== PLATAFORMAS =====
         addPlatform: (platform) =>
@@ -216,6 +215,8 @@ const libraryStore = create(
             // Respaldos anteriores al registro de editores no traen este campo:
             // en ese caso se conserva el registro actual en vez de borrarlo.
             editors: data.editors ?? get().editors,
+            // Respaldos anteriores a la tabla de números finales: se conserva la actual.
+            suffixRules: data.suffixRules ? normalizeSuffixRules(data.suffixRules) : get().suffixRules,
           });
         },
         
@@ -228,6 +229,7 @@ const libraryStore = create(
             versions: state.versions,
             columnMappings: state.columnMappings,
             editors: state.editors,
+            suffixRules: normalizeSuffixRules(state.suffixRules),
             exportedAt: new Date().toISOString(),
           };
         },
@@ -237,7 +239,8 @@ const libraryStore = create(
         // v1: casillas de logica_sin_version convertidas una vez al formato actual.
         // Los datos guardados en el navegador antes de esto (versión 0) pasan por aquí.
         // v2: versiones con id repetido reciben un id nuevo (punto #10).
-        version: 2,
+        // v3: tabla de números finales en formato "un número por fila".
+        version: 3,
         migrate: (persisted, fromVersion) => {
           let state = persisted || {};
           if (fromVersion < 1) {
@@ -245,6 +248,9 @@ const libraryStore = create(
           }
           if (fromVersion < 2) {
             state = { ...state, versions: repairVersionIds(state.versions || []) };
+          }
+          if (fromVersion < 3 && state.suffixRules) {
+            state = { ...state, suffixRules: normalizeSuffixRules(state.suffixRules) };
           }
           return state;
         },

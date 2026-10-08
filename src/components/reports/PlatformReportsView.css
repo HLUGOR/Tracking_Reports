@@ -2,8 +2,7 @@
 
 .platform-reports {
   padding: 1.5rem;
-  max-width: 1100px;
-  margin: 0 auto;
+  /* Mismo ancho que los demás reportes: todo el espacio junto al menú */
 }
 
 .platform-reports h2 {

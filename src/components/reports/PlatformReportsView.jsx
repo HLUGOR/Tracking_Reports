@@ -7,12 +7,13 @@ import React, { useState } from 'react';
 import ExcelJS from 'exceljs';
 import excelStore from '../../store/excelStore';
 import libraryStore from '../../store/libraryStore';
-import PlatformReportsEngine from '../../core/reportEngine/PlatformReportsEngine';
+import PlatformReportsEngine, { isReprocessKey } from '../../core/reportEngine/PlatformReportsEngine';
 import { buildCategoryLabel } from '../../core/utils/categoryLabel';
 import useTranslation from '../../i18n/useTranslation';
 import { translate } from '../../i18n/translations';
 import './PlatformReportsView.css';
 import { formatPeriod } from '../../core/utils/dateUtils';
+import { formatRowRanges } from '../../core/utils/rowRanges';
 
 // El Excel exportado SIEMPRE va en inglés, sin importar el idioma activo en pantalla.
 const e = (text) => translate(text, 'en');
@@ -22,12 +23,14 @@ const e = (text) => translate(text, 'en');
 const formatDiscardReason = (d, tr) => {
   const vals = d.values?.length ? `: ${d.values.map((v) => `"${v}"`).join(', ')}` : '';
   const who = d.platform ? `${d.platform} — ` : '';
-  return `${who}${tr(d.motivo)}${vals} (${d.count} ${tr(d.count === 1 ? 'fila' : 'filas')})`;
+  const where = d.rows?.length ? ` — ${tr('filas del Excel')}: ${formatRowRanges(d.rows)}` : '';
+  return `${who}${tr(d.motivo)}${vals} (${d.count} ${tr(d.count === 1 ? 'fila' : 'filas')})${where}`;
 };
 
 // Una línea del aviso de fechas: "vacía (3 filas)" o ""25/06/2026" (2 filas)".
 const formatInvalidDate = (d, tr) =>
-  `${d.value === '' ? tr('vacía') : `"${d.value}"`} (${d.count} ${tr(d.count === 1 ? 'fila' : 'filas')})`;
+  `${d.value === '' ? tr('vacía') : `"${d.value}"`} (${d.count} ${tr(d.count === 1 ? 'fila' : 'filas')})`
+  + (d.rows?.length ? ` — ${tr('filas del Excel')}: ${formatRowRanges(d.rows)}` : '');
 
 // Formatea minutos a entero
 function formatMinutes(mins) {
@@ -67,6 +70,8 @@ function PlatformReportsView() {
     platforms: s.platforms,
     categories: s.categories,
     versions: s.versions,
+    editors: s.editors,
+    suffixRules: s.suffixRules,
   }));
 
   // ── Controles del reporte ──────────────────────────────────────────────────
@@ -107,7 +112,9 @@ function PlatformReportsView() {
         library,
         dateField
       );
-      setReportData(result);
+      // El período se guarda con el reporte: si después cambian las fechas sin volver a
+      // generar, la pantalla y el Excel siguen diciendo el período de estos datos.
+      setReportData({ ...result, periodLabel: dateField === 'all' ? null : formatPeriod(startDate, endDate) });
       // Expandir la primera plataforma automáticamente
       if (result.platforms.length > 0) {
         setExpandedPlatforms({ [result.platforms[0].platform]: true });
@@ -135,15 +142,14 @@ function PlatformReportsView() {
     wb.creator = 'TrackingReports';
     wb.created = new Date();
 
-    const periodoStr = dateField === 'all'
-      ? e('Todos los registros')
-      : formatPeriod(startDate, endDate);
+    const periodoStr = reportData.periodLabel || e('Todos los registros');
 
     // ── Paleta de colores ──────────────────────────────────────────────────
     const COLOR = {
       headerDark:   '1E293B', // slate-900  → fondo header plataforma
       headerBlue:   '1D4ED8', // blue-700   → fondo header categorías
       headerGreen:  '15803D', // green-700  → fondo Minutos/Total
+      headerAmber:  'B45309', // amber-700  → fondo columnas de reproceso "R"
       totalRow:     '0F172A', // slate-950  → fondo fila TOTAL
       summaryBg:    'DBEAFE', // blue-100   → fondo resumen
       auditBg:      'FEF9C3', // yellow-100 → auditoría
@@ -355,7 +361,8 @@ function PlatformReportsView() {
       const sortedCats = [
         ...platCats
           .filter((c) => c !== 'unregistered')
-          .sort((a, b) => (catDurationMap[a] || 0) - (catDurationMap[b] || 0)),
+          .sort((a, b) => ((catDurationMap[a] || 0) - (catDurationMap[b] || 0))
+            || (isReprocessKey(a) - isReprocessKey(b))),
         ...platCats.filter((c) => c === 'unregistered'),
       ];
       const categoryLabelMap = {};
@@ -389,7 +396,7 @@ function PlatformReportsView() {
       hdrRow.getCell(1).value = e('Editor');
       applyHeaderCell(hdrRow.getCell(1), e('Editor'), COLOR.headerDark);
       headerCats.forEach((_, i) => {
-        applyHeaderCell(hdrRow.getCell(2 + i), headerCats[i], COLOR.headerBlue);
+        applyHeaderCell(hdrRow.getCell(2 + i), headerCats[i], isReprocessKey(sortedCats[i]) ? COLOR.headerAmber : COLOR.headerBlue);
       });
       applyHeaderCell(hdrRow.getCell(2 + sortedCats.length), e('Minutos'), COLOR.headerGreen);
       applyHeaderCell(hdrRow.getCell(3 + sortedCats.length), e('Total'), COLOR.headerGreen);
@@ -405,11 +412,39 @@ function PlatformReportsView() {
         applyDataCell(row.getCell(3 + sortedCats.length), ed.totalCount, isAlt);
       });
 
-      // Fila TOTAL
-      const totalCatCounts = sortedCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
-      const totRow = ws.addRow([e('TOTAL'), ...totalCatCounts, Math.round(plt.totalMinutes), plt.totalCount]);
-      totRow.height = 18;
-      for (let i = 1; i <= totalCols; i++) applyTotalCell(totRow.getCell(i), totRow.getCell(i).value);
+      if (!plt.hasReprocess) {
+        // Fila TOTAL
+        const totalCatCounts = sortedCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
+        const totRow = ws.addRow([e('TOTAL'), ...totalCatCounts, Math.round(plt.totalMinutes), plt.totalCount]);
+        totRow.height = 18;
+        for (let i = 1; i <= totalCols; i++) applyTotalCell(totRow.getCell(i), totRow.getCell(i).value);
+        continue;
+      }
+
+      // Con reproceso: "TOTAL NEW" (solo lo nuevo) y "REPROSS" (solo reproceso). Cada
+      // categoría y su columna "R" se unen en una celda, como el formato de TQC.
+      const sumBy = (pred, field) => sortedCats.filter(pred)
+        .reduce((acc, cat) => acc + (plt.totalByCategory[cat]?.[field] || 0), 0);
+      const lines = [
+        { label: e('TOTAL NEW'), isR: false },
+        { label: 'REPROSS', isR: true },
+      ];
+      lines.forEach(({ label, isR }) => {
+        const cells = sortedCats.map((cat) => (isReprocessKey(cat) === isR ? (plt.totalByCategory[cat]?.count || 0) : null));
+        const pick = (cat) => isReprocessKey(cat) === isR;
+        const r = ws.addRow([label, ...cells, Math.round(sumBy(pick, 'minutes')), sumBy(pick, 'count')]);
+        r.height = 18;
+        for (let i = 1; i <= totalCols; i++) applyTotalCell(r.getCell(i), r.getCell(i).value);
+        // Unir cada categoría con su "R" (columnas vecinas), dejando el valor que toca
+        sortedCats.forEach((cat, i) => {
+          const next = sortedCats[i + 1];
+          if (!isReprocessKey(cat) && next && isReprocessKey(next) && next.slice(2) === String(cat)) {
+            const value = isR ? cells[i + 1] : cells[i];
+            ws.mergeCells(r.number, 2 + i, r.number, 3 + i);
+            applyTotalCell(r.getCell(2 + i), value);
+          }
+        });
+      });
     }
 
     // ── Hoja RESUMEN ───────────────────────────────────────────────────────
@@ -527,12 +562,16 @@ function PlatformReportsView() {
     };
 
     addAuditSection(e('🚫 Plataformas no registradas (descartadas):'), reportData.audit.unregisteredPlatforms, e('✅ Todas registradas'));
-    addAuditSection(e('⚠️ Versiones no registradas — CONTADAS con duración estimada:'), reportData.audit.unregisteredVersionsFallback, e('✅ Todas registradas'));
     addAuditSection(e('🔴 Versiones no registradas — EXCLUIDAS del reporte (0 minutos, sin fallback posible):'), reportData.audit.unregisteredVersionsDiscarded, e('✅ Todas registradas'));
     addAuditSection(
       e('📅 Filas sin fecha de aprobación válida (MM/DD/AAAA)'),
       (reportData.audit.invalidApprovedDates || []).map((d) => formatInvalidDate(d, e)),
       e('✅ Todas las filas traen fecha de aprobación')
+    );
+    addAuditSection(
+      e('⚠️ Contadas con alerta (revisar el dato):'),
+      (reportData.audit.warnings || []).map((d) => formatDiscardReason(d, e)),
+      e('✅ Sin alertas')
     );
     const discRow = wsAudit.addRow([e('Filas descartadas (total):'), reportData.audit.discardedCount]);
     discRow.getCell(1).font = fontBold;
@@ -629,11 +668,9 @@ function PlatformReportsView() {
           <div className="pr-summary">
             <span>
               🗓 {t('Período:')}{' '}
-              {dateField === 'all'
-                ? t('Todos los registros')
-                : formatPeriod(startDate, endDate)}
+              {reportData.periodLabel || t('Todos los registros')}
             </span>
-            <span>🎬 {t('Total registros procesados:')} <strong>{rows.length - reportData.audit.discardedCount}</strong></span>
+            <span>🎬 {t('Total registros procesados:')} <strong>{reportData.countedRows}</strong></span>
             <span>⏱ {t('Total minutos:')} <strong>{formatMinutes(reportData.grandTotal.minutes)}</strong></span>
             <span>📦 {t('Ítems:')} <strong>{reportData.grandTotal.count}</strong></span>
             <span className="pr-generated">{t('Generado:')} {formatDate(reportData.generatedAt, language)}</span>
@@ -784,6 +821,20 @@ function PlatformReportsView() {
                             </div>
                           )}
 
+                          {/* Nuevo vs reproceso (solo si el input trae REPROSS) */}
+                          {plt.hasReprocess && (() => {
+                            const sum = (isR, field) => Object.entries(plt.totalByCategory)
+                              .filter(([k]) => isReprocessKey(k) === isR)
+                              .reduce((acc, [, v]) => acc + (v[field] || 0), 0);
+                            return (
+                              <div className="pr-category-totals">
+                                <span className="pr-cat-title">{t('Nuevo vs reproceso:')}</span>
+                                <span className="pr-cat-chip">{t('TOTAL NEW')}: {sum(false, 'count')} ({formatMinutes(sum(false, 'minutes'))} {t('min')})</span>
+                                <span className="pr-cat-chip" style={{ borderLeft: '4px solid #b45309' }}>REPROSS: {sum(true, 'count')} ({formatMinutes(sum(true, 'minutes'))} {t('min')})</span>
+                              </div>
+                            );
+                          })()}
+
                           {/* Editores */}
                           {plt.editors.map((ed) => {
                             const edKey = `${plt.platform}::${ed.editor}`;
@@ -864,30 +915,13 @@ function PlatformReportsView() {
                 )}
               </div>
 
-              {/* Versiones no registradas — contadas con estimación */}
-              <div className="pr-audit-block">
-                <h4>
-                  ⚠️ {t('No registradas — contadas con duración estimada')} ({reportData.audit.unregisteredVersionsFallback.length})
-                </h4>
-                <p className="pr-audit-info">{t('Sí suman minutos al editor (duración adivinada por el nombre).')}</p>
-                {reportData.audit.unregisteredVersionsFallback.length === 0 ? (
-                  <p className="pr-audit-ok">✅ {t('Todas las versiones se encontraron en la librería')}</p>
-                ) : (
-                  <ul>
-                    {reportData.audit.unregisteredVersionsFallback.map((v) => (
-                      <li key={v}>{v}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
               {/* Versiones no registradas — excluidas sin fallback */}
               <div className="pr-audit-block">
                 <h4 style={{ color: '#b91c1c' }}>
                   🔴 {t('No registradas — EXCLUIDAS del reporte')} ({reportData.audit.unregisteredVersionsDiscarded.length})
                 </h4>
                 <p className="pr-audit-info">
-                  <strong>{t('No suman ningún minuto')}</strong> — {t('la fila se descartó por completo (ej. IBERIA sin código conocido).')}
+                  <strong>{t('No suman ningún minuto')}</strong> — {t('no están en la librería: regístralas en Librerías → Versiones para que se cuenten.')}
                 </p>
                 {reportData.audit.unregisteredVersionsDiscarded.length === 0 ? (
                   <p className="pr-audit-ok">✅ {t('Ninguna versión excluida')}</p>
@@ -918,6 +952,25 @@ function PlatformReportsView() {
                       ))}
                     </ul>
                   </>
+                )}
+              </div>
+
+              {/* Filas contadas con un dato a revisar */}
+              <div className="pr-audit-block">
+                <h4 style={(reportData.audit.warnings || []).length > 0 ? { color: '#b45309' } : undefined}>
+                  ⚠️ {t('Contadas con alerta:')} {(reportData.audit.warnings || []).reduce((s, d) => s + d.count, 0)}
+                </h4>
+                <p className="pr-audit-info">
+                  {t('Filas que sí se contaron, pero con un dato que hay que revisar:')}
+                </p>
+                {(reportData.audit.warnings || []).length === 0 ? (
+                  <p className="pr-audit-ok">✅ {t('Sin alertas')}</p>
+                ) : (
+                  <ul>
+                    {reportData.audit.warnings.map((d) => (
+                      <li key={`${d.platform}|${d.motivo}`}>{formatDiscardReason(d, t)}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
 

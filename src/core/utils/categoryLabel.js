@@ -15,6 +15,8 @@ export function buildCategoryLabel(cat) {
     .replace(/\s+\d+\s*$/, '')            // quita número suelto al final " 60"
     .trim();
   const dur = Number(cat.duration_minutes ?? cat.duration ?? 0);
-  if (dur <= 0) return cleanName || rawName;
-  return `${cleanName || rawName} (${dur} min)`;
+  // Columna de reproceso (logica_duracion_categorias): misma etiqueta + " R"
+  const suffix = cat.isReprocess ? ' R' : '';
+  if (dur <= 0) return (cleanName || rawName) + suffix;
+  return `${cleanName || rawName} (${dur} min)${suffix}`;
 }

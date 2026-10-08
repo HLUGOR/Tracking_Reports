@@ -1,183 +1,100 @@
-# TrackingReports - Aplicación Standalone
+# TrackingReports
 
-🚀 Aplicación React para procesar reportes, librerías y métricas **sin servidor**.
+Aplicación React que convierte el Excel de entrada (consolidado por una macro externa) en
+reportes de trabajo por editor: **Plataformas**, **Editores** (horas de esfuerzo) y **Series**.
+Funciona 100% en el navegador: no hay servidor y los datos no salen del equipo.
 
-## ✨ Características
+**Principio del proyecto:** el conteo de cada editor tiene que ser fiel. Nada se adivina en
+silencio: lo que no se puede calcular queda en la **Auditoría** con su motivo.
 
-- ✅ **Sin servidor** - 100% funciona en el navegador
-- ✅ **Offline first** - Funciona sin Internet
-- ✅ **Carga Excel** - Desde la interfaz del navegador
-- ✅ **Reportes instantáneos** - Cálculos < 1 segundo
-- ✅ **Múltiples exportaciones** - Excel, JSON, CSV, PDF
-- ✅ **Gestión de Librerías** - Jerárquica (Lógica → Plataforma → Categoría → Versión)
-- ✅ **Privacidad total** - Los datos nunca salen del navegador
-
-## 📦 Stack Tecnológico
-
-- **Frontend:** React 18.3.1
-- **Estado:** Zustand
-- **Excel I/O:** XLSX + ExcelJS
-- **Gráficos:** Chart.js 4.5
-- **Persistencia:** IndexedDB + localStorage
-- **Fechas:** date-fns
-
-## 🚀 Inicio Rápido
-
-### Instalación
+## Inicio rápido
 
 ```bash
-# Clonar repositorio
-git clone https://github.com/tuusuario/Tracking_Report.git
-cd Tracking_Report
-
-# Instalar dependencias
 npm install
-
-# Iniciar en desarrollo
-npm start
+npm start          # http://localhost:3002/Tracking_Reports  (puerto en .env)
+npm test           # pruebas automáticas (42 casos)
+npm run build      # genera /build
+npm run deploy     # publica en GitHub Pages
 ```
 
-La aplicación se abrirá automáticamente en `http://localhost:3000`
+## Excel de entrada
 
-### Build para Producción
+Una fila por asset. Columnas: `PLATFORM, HN, SERIE, SEASON, EPS TITLE, EPS#, CLIP, SHORT,
+VERSION, EDITOR, DURATION, APPROVED_DATE`.
 
-```bash
-npm run build
-```
+- **APPROVED_DATE** va en formato **MM/DD/AAAA** (mes primero). Toda fila debe traerla; las que
+  no, se avisan en la Auditoría.
+- Al cargar, cada **EDITOR** se compara con el registro de editores (Librerías → Editores). Los
+  nombres desconocidos se resuelven antes de continuar (nuevo editor o alias de uno existente).
 
-Genera carpeta `/build` lista para desplegar en cualquier servidor estático o CDN.
+## Cómo se calcula
 
-## 📚 Documentación
+Cada plataforma tiene una **lógica**, agrupada en 4 familias según la columna que decide los
+minutos de la fila. Horas de esfuerzo = minutos ÷ 60 × tasa.
 
-Ver carpeta `/docs/`:
-- `GUIA_INICIO.md` - Guía paso a paso
-- `ARQUITECTURA.md` - Visión técnica
-- `API_MODULOS.md` - Dokumentación de módulos
-- `TESTING.md` - Estrategia de testing
+| Familia | Columna | Lógica | Ejemplos | Dónde va la tasa |
+|---|---|---|---|---|
+| Con versión | VERSION | `logica_de_versiones` | LATAM (+BRAZIL), OFF AIR, VOD | Cada categoría |
+| | | `iberia_especial` | IBERIA | Cada categoría |
+| Sin versión | SEASON | `logica_sin_version` | SONY ONE, AMAZON | Casillas serie / película |
+| Por duración | DURATION | `logica_por_duracion` | Plataformas COMPLIANCE | La plataforma |
+| | | `logica_bp_i` | BP&I | La plataforma |
+| | | `logica_comerciales` | COMERCIALES | La plataforma (horas por pieza*) |
+| Por conteo | CLIP / SHORT | `logica_youtube` | YOUTUBE | La plataforma |
 
-## 🏗️ Estructura de Carpetas
+\* Cómo calcular COMERCIALES está pendiente de definir con TQC.
 
-```
-Tracking_Report/
-├── src/
-│   ├── core/              # Lógica sin UI
-│   │   ├── excel/         # Parsing y validación
-│   │   ├── reportEngine/  # Cálculo de reportes
-│   │   ├── dataStorage/   # Persistencia local
-│   │   └── utils/         # Funciones ayuda
-│   ├── store/             # Estado global (Zustand)
-│   ├── components/        # Componentes React
-│   ├── styles/            # CSS
-│   └── App.jsx
-├── public/                # Assets estáticos
-├── docs/                  # Documentación
-└── package.json
-```
+Reglas principales:
 
-## � Funcionalidades Principales
+- **Con versión:** la VERSION se busca en la librería. Si no está, `logica_de_versiones` estima la
+  duración por el número final (1-4 → 30, 5-6 → 60, 9-10 → 120; no existen 7 ni 8) y lo avisa
+  en la Auditoría; `iberia_especial` no estima: la fila no cuenta. El prefijo `BRA_` envía la
+  fila de LATAM a BRAZIL.
+- **Sin versión:** SEASON vacío o 0 = película; cualquier otro valor = serie.
+- **Por duración:** DURATION acepta minutos (`30`) o tiempo (`00:30:00`). Si trae texto, la fila
+  no cuenta y la Auditoría muestra el valor.
+- **Tasa:** es un % del esfuerzo estándar (1 = 100%, 1.5 = 150%, 0.25 = 25%). Una plataforma
+  tiene una sola tasa, la misma en todos los reportes. En los formularios arranca en 1, acepta
+  decimales y es obligatoria.
 
-### 1. Gestión de Librerías
-- **Plataformas**: LATAM, BRAZIL, AMAZON, SONY ONE, etc.
-- **Categorías**: serie (30/45/60 min), película (120 min), etc.
-- **Versiones**: importar en lote desde Excel, auto-detectar duración/plataforma
-- **Colores**: personalizar por categoría para mejor visualización
+## Reportes
 
-### 2. Reporte de Plataformas
-- **Filtrado**: por período (APPROVED_DATE, AIR_DATE, o sin filtro)
-- **Agregación**: plataforma → editor → categoría → ítems + minutos
-- **Aislamiento**: cada plataforma sólo muestra sus categorías
-- **Resolución**: duración exacta es fuente de verdad (30 min ≠ 60 min)
-- **Export Excel**: 
-  - Una hoja por plataforma (Editor | [categorías] | Minutos | Total)
-  - Hoja "Resumen" con totales por plataforma
-  - Hoja "Auditoría" (versiones sin categoría, plataformas no registradas, etc.)
+- **Plataformas:** plataforma → editor → categoría, con ítems y minutos. El Excel trae una hoja
+  por plataforma, un Summary y una hoja de Auditoría.
+- **Editores:** horas de esfuerzo por editor y por grupo de esfuerzo, con % de ocupación.
+- **Series:** horas por serie (solo filas con SERIE), calculadas con el mismo código que Editores.
 
-### 3. Importación Excel Masiva
-- Sin cabecera: auto-detecta columna A como nombre de versión
-- Duración por sufijo: sufijo 1-4 → 30 min, 5-6 → 60 min, 9-10 → 120 min
-- Deduplicación: evita importar versiones existentes
-- Auto-reparación: `repairVersionIds()` si hay colisiones por importes rápidos
+Los tres arrancan en "Todos los registros" y permiten filtrar por fecha de aprobación. La
+pantalla está en español o inglés (botón de idioma); el Excel descargado siempre sale en inglés.
 
-## 🔄 Flujos Principales
-
-### Cargar Excel → Generar Reporte de Plataformas
+## Estructura
 
 ```
-1. Usuario carga archivo Excel (Editor, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE)
-2. ColumnMapper → mapea columnas del usuario a esquema estándar
-3. ExcelStorage → almacena filas en Cliente
-4. Definir Librerías:
-   - LibraryView → crear Plataformas, Categorías, Versiones
-   - Auto-asignar versiones por duración detectada
-5. General Reporte:
-   - Seleccionar período + campo de fecha
-   - PlatformReportsEngine.buildReport()
-     ├─ VersionMatcher.classify() → duración real
-     ├─ resolveCategoryForPlatform() → duración exacta → category.id único
-     └─ Acumular en byCategory[id]
-6. Visualizar reporte con desglose por editor
-7. Exportar a Excel
+src/
+├── components/
+│   ├── dataImport/   Carga del Excel, mapeo de columnas, Librerías, asistente de plataforma,
+│   │                 resolución de editores
+│   ├── reports/      Reportes Plataformas, Editores y Series (pantalla + exportación Excel)
+│   └── shared/
+├── core/
+│   ├── reportEngine/ PlatformReportsEngine (minutos, horas, auditoría), SerieReportsEngine,
+│   │                 VersionMatcher, versionRules, logicaFamilies
+│   ├── utils/        dateUtils (fechas), rates (tasas), editorRegistry, platformCasillas
+│   ├── excel/        Lectura del Excel
+│   └── __tests__/    Pruebas automáticas
+├── store/            Estado (Zustand): librería, Excel cargado, idioma
+└── i18n/             Traducciones español → inglés
 ```
 
-## 🔐 Privacidad y Seguridad
+La librería (plataformas, categorías, versiones, editores) se guarda en el navegador. Usa
+**Librerías → 💾 Hacer Respaldo** para tener una copia (.json) y **♻️ Restaurar Respaldo** para cargarla;
+los respaldos viejos se convierten solos al formato actual.
 
-✅ **100% privacidad:** Los datos del Excel nunca viajan al servidor  
-✅ **Almacenamiento local:** Datos guardados en IndexedDB del navegador  
-✅ **Sin dependencias externas:** Cero Http calls a APIs externas  
-✅ **Validación:** Todas las entradas validadas en cliente
+## Historial
 
-## 🎯 Estado de Desarrollo
+- `Notas.txt`: bitácora de la revisión (puntos #1-#12), decisiones de negocio y pendientes.
+- `docs/historial/`: notas y changelogs de sesiones anteriores (abril 2026), solo como referencia.
 
-### ✅ FASE 1: MVP (Completado)
-- [x] Setup inicial
-- [x] ExcelParser + ExcelValidator
-- [x] EditorReportsEngine
-- [x] UI básica
-- [x] Exportación Excel/JSON
-- [x] Persistencia local
-
-### ✅ FASE 2: Reportes de Plataforma (Completado)
-- [x] Gestión de Librerías (Plataformas → Categorías → Versiones)
-- [x] **Reporte de Plataformas** con aislamiento de categorías
-- [x] Clasificación por duración exacta (no por nombre)
-- [x] Export Excel: una hoja por plataforma + Resumen + Auditoría
-- [x] Filtros por fecha (APPROVED_DATE, AIR_DATE, sin filtro)
-- [x] Auditoría: plataformas/versiones no registradas, filas descartadas
-- [x] Fix: uso de category.id como clave única (evita colisiones)
-- [x] Fix: repairVersionIds() para importes masivos sin duplicados
-
-### 📋 FASE 3: Próximas Mejoras
-- [ ] Reporte de Editores (agregados por editor)
-- [ ] Gráficos: barras, pie charts, tendencias
-- [ ] Filtros avanzados por editor/categoría/duración
-- [ ] Caché de reportes generados
-- [ ] Dashboard con KPIs principales
-- [ ] Deploy en servidor Node o Azure
-
-## 🧪 Testing
-
-```bash
-# Correr tests
-npm test
-
-# Watch mode
-npm run test:watch
-
-# Coverage
-npm test -- --coverage
-```
-
-## 📞 Soporte y Feedback
-
-Para reportar bugs o sugerir features, abre un [GitHub Issue](https://github.com/tuusuario/Tracking_Report/issues)
-
-## 📄 Licencia
+## Licencia
 
 MIT
-
----
-
-**Versión:** 2.0.0  
-**Estado:** BETA (Reportes de Plataforma)  
-**Última actualización:** 6 de abril de 2026  
-**Changelog:** Ver [CHANGELOG_SESION_6ABRIL_2026.md](./CHANGELOG_SESION_6ABRIL_2026.md)

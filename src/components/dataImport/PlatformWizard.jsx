@@ -14,8 +14,9 @@
 
 import React, { useState, useMemo } from 'react';
 import libraryStore from '../../store/libraryStore';
-import { checkVersionSuffix } from '../../core/reportEngine/versionRules';
+import { checkVersionSuffix, describeSuffixRules } from '../../core/reportEngine/versionRules';
 import { LOGICA_FAMILIES } from '../../core/reportEngine/logicaFamilies';
+import { DEFAULT_RATE, isValidRate, RATE_INPUT_PROPS, rateFromInput } from '../../core/utils/rates';
 
 
 let _tempKeyCounter = 0;
@@ -23,6 +24,7 @@ const nextTempKey = (prefix) => `${prefix}-${++_tempKeyCounter}`;
 
 function PlatformWizard({ onCancel, onComplete }) {
   const existingPlatforms = libraryStore((state) => state.platforms);
+  const suffixRules = libraryStore((state) => state.suffixRules);
   const existingEffortGroups = useMemo(
     () => [...new Set(existingPlatforms.map((p) => (p.effortGroup || '').trim()).filter(Boolean))],
     [existingPlatforms]
@@ -32,22 +34,26 @@ function PlatformWizard({ onCancel, onComplete }) {
     name: '',
     logica: '',
     effortGroup: '',
-    platformEffortRate: null,
+    platformEffortRate: DEFAULT_RATE, // tasa visible desde el inicio (1 = estándar)
     categorias: [], // solo logica_sin_version
   });
 
   const [stagedCategories, setStagedCategories] = useState([]); // [{tempKey, data:{name,duration,color,effortRate}}]
   const [stagedVersions, setStagedVersions] = useState([]); // [{tempCategoryKey, data:{name,duration}}]
 
-  const [catForm, setCatForm] = useState({ name: '', duration: '', color: '#667eea', effortRate: null });
+  const [catForm, setCatForm] = useState({ name: '', duration: '', color: '#667eea', effortRate: DEFAULT_RATE, reprocessRate: DEFAULT_RATE });
   const [verForm, setVerForm] = useState({ name: '', duration: null, tempCategoryKey: '' });
 
   const needsCatVersions = platformData.logica === 'logica_de_versiones' || platformData.logica === 'iberia_especial';
+  // Por duración con categorías (ej. FAST GLOBAL): categorías por duración, sin versiones,
+  // y cada categoría con su tasa de reproceso.
+  const isDurCat = platformData.logica === 'logica_duracion_categorias';
+  const needsCategories = needsCatVersions || isDurCat;
   const needsSinVersionCats = platformData.logica === 'logica_sin_version';
   const needsPlatformRate = ['logica_comerciales', 'logica_bp_i', 'logica_por_duracion', 'logica_youtube'].includes(platformData.logica);
 
   // Pasos visibles según la lógica elegida (el 4 solo aplica a logica_de_versiones/iberia_especial)
-  const stepKeys = useMemo(() => (needsCatVersions ? [1, 2, 3, 4, 5] : [1, 2, 3, 5]), [needsCatVersions]);
+  const stepKeys = useMemo(() => (needsCategories ? [1, 2, 3, 4, 5] : [1, 2, 3, 5]), [needsCategories]);
   const [stepIdx, setStepIdx] = useState(0);
   const step = stepKeys[stepIdx];
   const isFirstStep = stepIdx === 0;
@@ -61,14 +67,17 @@ function PlatformWizard({ onCancel, onComplete }) {
   const sinVersionCatsValid =
     !needsSinVersionCats ||
     (platformData.categorias.length >= 2 &&
-      platformData.categorias.every((c) => (c.key || '').trim() !== '' && Number(c.duration) > 0));
+      platformData.categorias.every((c) => (c.key || '').trim() !== '' && Number(c.duration) > 0 && isValidRate(c.effortRate)));
+  // Tasa de plataforma (lógicas por duración y por conteo): obligatoria
+  const platformRateValid = !needsPlatformRate || isValidRate(platformData.platformEffortRate);
 
   const missing = [];
   if (!step1Valid) missing.push('Nombre y tipo de lógica (paso 1)');
   if (needsSinVersionCats && !sinVersionCatsValid) {
-    missing.push('Las 2 categorías de logica_sin_version deben tener nombre y duración (paso 3)');
+    missing.push('Las 2 categorías de logica_sin_version deben tener nombre, duración y tasa (paso 3)');
   }
-  if (needsCatVersions && stagedCategories.length === 0) missing.push('Al menos 1 categoría (paso 4)');
+  if (!platformRateValid) missing.push('Tasa de Esfuerzo de la plataforma (paso 3)');
+  if (needsCategories && stagedCategories.length === 0) missing.push('Al menos 1 categoría (paso 4)');
   if (needsCatVersions && stagedVersions.length === 0) missing.push('Al menos 1 versión (paso 4)');
   const isComplete = missing.length === 0;
 
@@ -84,8 +93,15 @@ function PlatformWizard({ onCancel, onComplete }) {
     return duration ? `${clean} (${duration} min)` : clean;
   };
 
+  // En por duración con categorías la DURATION elige la categoría: no puede haber dos
+  // categorías con la misma duración.
+  const catDurationTaken = isDurCat && catForm.duration
+    && stagedCategories.some((c) => c.data.duration === parseInt(catForm.duration, 10));
+  const catFormValid = catForm.name.trim() && catForm.duration && isValidRate(catForm.effortRate)
+    && (!isDurCat || isValidRate(catForm.reprocessRate)) && !catDurationTaken;
+
   const addStagedCategory = () => {
-    if (!catForm.name.trim() || !catForm.duration) return;
+    if (!catFormValid) return;
     const duration = parseInt(catForm.duration, 10);
     setStagedCategories((prev) => [
       ...prev,
@@ -96,10 +112,11 @@ function PlatformWizard({ onCancel, onComplete }) {
           duration,
           color: catForm.color,
           effortRate: catForm.effortRate,
+          ...(isDurCat ? { reprocessRate: catForm.reprocessRate } : {}),
         },
       },
     ]);
-    setCatForm({ name: '', duration: '', color: '#667eea', effortRate: null });
+    setCatForm({ name: '', duration: '', color: '#667eea', effortRate: DEFAULT_RATE, reprocessRate: DEFAULT_RATE });
   };
 
   const removeStagedCategory = (tempKey) => {
@@ -107,7 +124,7 @@ function PlatformWizard({ onCancel, onComplete }) {
     setStagedVersions((prev) => prev.filter((v) => v.tempCategoryKey !== tempKey));
   };
 
-  const verSuffixCheck = checkVersionSuffix(verForm.name);
+  const verSuffixCheck = checkVersionSuffix(verForm.name, suffixRules);
   const selectedCategory = stagedCategories.find((c) => c.tempKey === verForm.tempCategoryKey);
   // El nombre y la categoría elegida deben estar de acuerdo: si el sufijo del nombre
   // sugiere una duración (30/60/120) y no coincide con la de la categoría seleccionada,
@@ -145,12 +162,12 @@ function PlatformWizard({ onCancel, onComplete }) {
       name: platformData.name.trim(),
       logica: platformData.logica,
       effortGroup: platformData.effortGroup,
-      platformEffortRate: platformData.platformEffortRate,
+      platformEffortRate: needsPlatformRate ? platformData.platformEffortRate : null,
       categorias: needsSinVersionCats ? platformData.categorias : [],
     };
     libraryStore.getState().commitPlatformSetup({
       platform: normalizedPlatform,
-      categories: needsCatVersions ? stagedCategories : [],
+      categories: needsCategories ? stagedCategories : [],
       versions: needsCatVersions ? stagedVersions : [],
     });
     onComplete({ name: normalizedPlatform.name, logica: normalizedPlatform.logica });
@@ -253,15 +270,17 @@ function PlatformWizard({ onCancel, onComplete }) {
             {needsPlatformRate && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={labelStyle}>
-                  ⚡ Tasa de Esfuerzo de la plataforma (vacío = 1, el estándar)
+                  ⚡ Tasa de Esfuerzo de la plataforma — obligatoria (1 = 100%, 1.5 = 150%, 0.25 = 25%)
                 </label>
                 <input
-                  type="number" step="0.25" min="0"
-                  placeholder="1 = 100%, 1.5 = 150%, 0.75 = 75%"
+                  {...RATE_INPUT_PROPS}
                   value={platformData.platformEffortRate ?? ''}
-                  onChange={(e) => setPlatformData({ ...platformData, platformEffortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
+                  onChange={(e) => setPlatformData({ ...platformData, platformEffortRate: rateFromInput(e.target.value) })}
                   style={{ ...inputStyle, width: '160px' }}
                 />
+                {!platformRateValid && (
+                  <small style={{ color: '#b91c1c' }}>Escribe la tasa (mayor que 0) para continuar.</small>
+                )}
               </div>
             )}
 
@@ -269,7 +288,7 @@ function PlatformWizard({ onCancel, onComplete }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                 <label style={labelStyle}>📂 Categorías (serie / película) — obligatorias</label>
                 {[0, 1].map((idx) => {
-                  const cat = platformData.categorias[idx] || { key: '', duration: '', effortRate: null };
+                  const cat = platformData.categorias[idx] || { key: '', duration: '', effortRate: DEFAULT_RATE };
                   return (
                     <div key={idx} style={{ display: 'flex', gap: '0.5rem' }}>
                       <input
@@ -293,11 +312,24 @@ function PlatformWizard({ onCancel, onComplete }) {
                         }}
                         style={{ ...inputStyle, width: '90px' }}
                       />
+                      <input
+                        {...RATE_INPUT_PROPS}
+                        title="Tasa de esfuerzo (1 = 100%)"
+                        placeholder="tasa"
+                        value={cat.effortRate ?? ''}
+                        onChange={(e) => {
+                          const cats = [...platformData.categorias];
+                          cats[idx] = { ...cat, effortRate: rateFromInput(e.target.value) };
+                          setPlatformData({ ...platformData, categorias: cats });
+                        }}
+                        style={{ ...inputStyle, width: '80px' }}
+                      />
                     </div>
                   );
                 })}
+                <small style={{ color: '#64748b', fontSize: '0.78rem' }}>Nombre · minutos · tasa (1 = 100%, 1.5 = 150%, 0.25 = 25%)</small>
                 {!sinVersionCatsValid && (
-                  <small style={{ color: '#b91c1c' }}>Completa nombre y duración de ambas categorías para continuar.</small>
+                  <small style={{ color: '#b91c1c' }}>Completa nombre, duración y tasa de ambas categorías para continuar.</small>
                 )}
               </div>
             )}
@@ -310,7 +342,7 @@ function PlatformWizard({ onCancel, onComplete }) {
           </div>
         )}
 
-        {/* PASO 4 — Categorías y Versiones (solo logica_de_versiones / iberia_especial) */}
+        {/* PASO 4 — Categorías (y Versiones solo en logica_de_versiones / iberia_especial) */}
         {step === 4 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
             <div>
@@ -322,13 +354,27 @@ function PlatformWizard({ onCancel, onComplete }) {
                   onChange={(e) => setCatForm({ ...catForm, duration: e.target.value })} style={{ ...inputStyle, width: '90px' }} />
                 <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>min</span>
                 <input type="color" value={catForm.color} onChange={(e) => setCatForm({ ...catForm, color: e.target.value })} />
-                <input type="number" step="0.25" min="0" placeholder="Tasa" value={catForm.effortRate ?? ''}
-                  onChange={(e) => setCatForm({ ...catForm, effortRate: e.target.value !== '' ? parseFloat(e.target.value) : null })}
+                <input {...RATE_INPUT_PROPS} placeholder="Tasa" title="Tasa de esfuerzo (1 = 100%)" value={catForm.effortRate ?? ''}
+                  onChange={(e) => setCatForm({ ...catForm, effortRate: rateFromInput(e.target.value) })}
                   style={{ ...inputStyle, width: '80px' }} />
-                <button className="btn btn-secondary" onClick={addStagedCategory} disabled={!catForm.name.trim() || !catForm.duration}>
+                {isDurCat && (
+                  <input {...RATE_INPUT_PROPS} placeholder="Tasa R" title="Tasa de esfuerzo del reproceso (1 = 100%)" value={catForm.reprocessRate ?? ''}
+                    onChange={(e) => setCatForm({ ...catForm, reprocessRate: rateFromInput(e.target.value) })}
+                    style={{ ...inputStyle, width: '80px', background: '#fffbeb' }} />
+                )}
+                <button className="btn btn-secondary" onClick={addStagedCategory} disabled={!catFormValid}>
                   ➕
                 </button>
               </div>
+              {isDurCat && (
+                <small style={{ color: '#64748b', fontSize: '0.78rem' }}>
+                  La columna DURATION del input elige la categoría (ej. 30 → serie 30, 120 → película).
+                  Nombre · minutos · color · tasa · tasa de reproceso (filas con REPROSS en VERSION).
+                </small>
+              )}
+              {catDurationTaken && (
+                <small style={{ color: '#b91c1c', fontSize: '0.78rem' }}>Ya hay una categoría de {catForm.duration} min.</small>
+              )}
               {catForm.name.trim() && catForm.duration && (
                 <small style={{ color: '#4f46e5', fontSize: '0.78rem' }}>
                   Se creará como: <strong>{composedCategoryName(catForm.name, catForm.duration)}</strong>
@@ -341,7 +387,7 @@ function PlatformWizard({ onCancel, onComplete }) {
                   {stagedCategories.map((c) => (
                     <li key={c.tempKey} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: c.data.color, display: 'inline-block' }} />
-                      {c.data.name} — {c.data.duration}min{c.data.effortRate ? ` · tasa ${c.data.effortRate}` : ''}
+                      {c.data.name} — {c.data.duration}min · tasa {c.data.effortRate}{isDurCat ? ` · tasa R ${c.data.reprocessRate}` : ''}
                       <button onClick={() => removeStagedCategory(c.tempKey)} style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
                     </li>
                   ))}
@@ -349,6 +395,7 @@ function PlatformWizard({ onCancel, onComplete }) {
               )}
             </div>
 
+            {needsCatVersions && (
             <div>
               <label style={labelStyle}>📦 Versiones de {platformData.name || 'esta plataforma'} — al menos 1</label>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
@@ -371,7 +418,7 @@ function PlatformWizard({ onCancel, onComplete }) {
               </div>
               {verSuffixCheck.invalidSuffix !== null && (
                 <p style={{ color: '#b91c1c', fontSize: '0.8rem', marginTop: '0.4rem' }}>
-                  🚫 El número {verSuffixCheck.invalidSuffix} no es parte de la numeración soportada (1-4, 5-6, 9-10).
+                  🚫 El número final {verSuffixCheck.invalidSuffix} no está en la tabla ({describeSuffixRules(suffixRules)}). Agrégalo primero en Librerías → Versiones → "Números finales de versión".
                 </p>
               )}
               {versionCategoryMismatch && (
@@ -402,6 +449,7 @@ function PlatformWizard({ onCancel, onComplete }) {
                 </ul>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -412,15 +460,15 @@ function PlatformWizard({ onCancel, onComplete }) {
               <div><strong>Nombre:</strong> {platformData.name || '—'}</div>
               <div><strong>Lógica:</strong> {platformData.logica || '—'}</div>
               <div><strong>Grupo de Esfuerzo:</strong> {platformData.effortGroup || 'OTROS'}</div>
-              {needsPlatformRate && <div><strong>Tasa de plataforma:</strong> {platformData.platformEffortRate ?? '1 (estándar)'}</div>}
+              {needsPlatformRate && <div><strong>Tasa de plataforma:</strong> {platformData.platformEffortRate}</div>}
               {needsSinVersionCats && (
                 <div><strong>Categorías:</strong> {platformData.categorias.map((c) => `${c.key} (${c.duration}min)`).join(', ') || '—'}</div>
               )}
+              {needsCategories && (
+                <div><strong>Categorías a crear:</strong> {stagedCategories.length} — {stagedCategories.map((c) => c.data.name).join(', ') || '—'}</div>
+              )}
               {needsCatVersions && (
-                <>
-                  <div><strong>Categorías a crear:</strong> {stagedCategories.length} — {stagedCategories.map((c) => c.data.name).join(', ') || '—'}</div>
-                  <div><strong>Versiones a crear:</strong> {stagedVersions.length}</div>
-                </>
+                <div><strong>Versiones a crear:</strong> {stagedVersions.length}</div>
               )}
             </div>
 
@@ -448,7 +496,8 @@ function PlatformWizard({ onCancel, onComplete }) {
                 onClick={goNext}
                 disabled={
                   (step === 1 && !step1Valid) ||
-                  (step === 3 && needsSinVersionCats && !sinVersionCatsValid)
+                  (step === 3 && needsSinVersionCats && !sinVersionCatsValid) ||
+                  (step === 3 && !platformRateValid)
                 }
               >
                 Siguiente →

@@ -772,3 +772,364 @@ VERIFICACIÓN CON EL RESPALDO NUEVO (29 sep 2026)
   Ajuste (29 sep): el "Período" de los 3 reportes (pantalla y Excel) se mostraba
   AAAA-MM-DD (2026-06-01 → 2026-06-26); ahora sale MM/DD/AAAA (06/01/2026 →
   06/26/2026), igual que el input. Función formatPeriod en dateUtils.js.
+
+TASAS OBLIGATORIAS Y VISIBLES (30 sep 2026) — ajusta la regla del 28 sep
+  Decisión del usuario: la tasa siempre se configura; ningún valor se "autogestiona"
+  por detrás. Si no hay tasa, no se deja terminar la configuración.
+  Cambios (src/core/utils/rates.js = regla única):
+    - Todo campo de tasa arranca con 1 ESCRITO (a la vista). Si se borra o se pone 0,
+      no deja guardar/avanzar y dice qué tasa falta.
+    - Asistente (Nueva Plataforma): tasa de plataforma obligatoria (por duración /
+      por conteo); casillas de SONY ONE/AMAZON ahora TIENEN campo de tasa (antes no
+      tenía → la plataforma quedaba sin tasa); categorías del paso 4 con tasa
+      obligatoria para poder agregarlas.
+    - Librerías → Plataformas → ✏️ Editar: tasa de plataforma, casillas y tabla de
+      categorías obligatorias. Si una venía sin tasa se muestra 1 escrito y al guardar
+      queda 1 guardado.
+    - Librerías → Categorías (nueva/editar): tasa obligatoria, arranca en 1.
+    - Botón "Validar librería": ahora también avisa tasas faltantes.
+    - Decimales: los campos iban de 0.25 en 0.25 (0.30 quedaba inválido); ahora paso
+      0.01 → acepta 0.25, 0.30, 1.75, etc. Probado: 0.30 y 0.25 calculan bien.
+    - El cálculo sigue usando 1 si algún dato viejo no trae tasa (red de seguridad),
+      pero los formularios ya no permiten dejarla vacía.
+  Librería 2026-09-29: "Validar librería" avisa BP&I y YOUTUBE sin tasa → entrar a
+  Editar, poner su tasa real (o dejar el 1 que aparece) y Guardar.
+
+#12 — PRUEBAS, README Y LIMPIEZA (CERRADO, 30 sep 2026)
+  a) Pruebas automáticas: 42 casos en src/core/__tests__ (datos de ejemplo en
+     src/core/__fixtures__/library.js). Se corren con:  npm test
+     (el script llamaba a jest sin la configuración de la app → se cambió a
+     "react-scripts test --watchAll=false"; npm run test:watch = modo continuo).
+     Cubren: fechas MM/DD/AAAA, tasas (decimales, obligatorias, 1 = estándar),
+     sufijos 1-4/5-6/9-10 (7 y 8 bloqueados), LAT_/BRA_, regla de SEASON, formato
+     antiguo de casillas, editores (acentos, alias, desconocidos), cálculo de cada
+     lógica (versiones, IBERIA, SEASON, por duración, BP&I, COMERCIALES, YOUTUBE),
+     auditoría (plataforma no registrada, DURATION con texto, fechas inválidas),
+     filtro de fechas, Series = Editores, ids únicos y reparación de respaldos.
+  b) README.md reescrito: cómo es la app hoy (puerto 3002, Excel de entrada, 4
+     familias de lógica, reglas de tasa y fecha, reportes, estructura, respaldo).
+  c) Limpieza (con git, recuperable):
+     - Borrado src/core/reportEngine/EditorReportsEngine.js (prototipo sin uso).
+     - 13 notas/changelogs de abril movidos a docs/historial/.
+  Verificado: lint OK, 42/42 pruebas OK, build de producción OK.
+
+==============================================================================
+ESTADO AL 30 SEP 2026 — REVISIÓN #1-#12 TERMINADA
+==============================================================================
+Pendientes (decisiones del negocio / después de la reunión con TQC):
+  1. COMERCIALES: cómo calcular (hoy horas por pieza × 1.25).
+  2. Validación del input al cargar (datos que no corresponden, ej. REPROSS en DURATION).
+  3. Registrar plataformas COMPLIANCE con logica_por_duracion y sus tasas (paso 4).
+  4. (Opcional) unir COMERCIALES y BP&I en por_duración (paso 5).
+  5. Cargar tasa real de BP&I y YOUTUBE (hoy sin tasa → Validar librería avisa).
+  6. Revisar VOD serie 60 con tasa 1 y la categoría LATAM "Serie_Accion" 35 min.
+  7. TBD (La Llorona) contado con 30 min estimados; registrar IBERIA "p- F HD Ci3BAFRISCr".
+  8. Aliases opcionales de nombres cortos viejos (Yra, Cheo, Deci, Luiis, Jesús).
+
+META FINAL (30 sep 2026): APP EJECUTABLE, VARIAS MÁQUINAS, OFFLINE
+  Hoy ya funciona sin internet (sin CDN, fuentes web ni llamadas a APIs — verificado).
+  Punto clave: la librería (tasas, versiones, editores) vive en el navegador de CADA
+  equipo → con varias máquinas cada una tendría su propia librería y los reportes
+  podrían no cuadrar. Por decidir: dónde vive la librería compartida (¿carpeta H:?),
+  quién la edita, cómo llegan las actualizaciones, empaquetado (Electron recomendado).
+
+EMPAQUETADO — PARA MÁS ADELANTE (30 sep 2026)
+  Decidido: opción A = .exe portable (Windows, sin instalar) que arranca un servidor
+  local y abre el navegador. Ya se hizo antes con una versión vieja y funcionó.
+  Recomendado para la nueva: el .exe solo "abre" la app y la app va en una carpeta
+  app\ al lado → actualizar = reemplazar app\ (sin re-empaquetar), con actualización
+  automática desde H: al abrir; la librería en un archivo aparte (no se pierde).
+  Pendiente: ¿las máquinas ven H: sin internet? ¿quién edita la librería?
+
+==============================================================================
+REVISIÓN #2 (30 sep 2026) — HALLAZGOS NUEVOS (sin corregir todavía)
+==============================================================================
+R2-1 (ALTA) Filas que se pierden o suman 0 SIN aviso (en junio: 0 casos):
+     a) LATAM/VOD/OFF AIR sin VERSION → no cuenta, y la Auditoría la pone en
+        "contadas con duración estimada" (dice lo contrario).
+     b) BP&I con DURATION en tiempo ("00:30:00") o texto → 0 min y 0 h, sin aviso.
+     c) COMERCIALES con DURATION en minutos ("30") o vacía → 0 min, sin aviso.
+R2-2 (ALTA) Librerías → Versiones → importar desde Excel se salta las validaciones
+     del formulario: acepta sufijo 7/8 (lo pone 30 min), no revisa que nombre /
+     duración / categoría coincidan (el error de LATAM), si el nombre ya existe en
+     OTRA plataforma la cambia de plataforma, y un nombre repetido en el archivo
+     crea versiones duplicadas.
+R2-3 (MEDIA) Excel con período equivocado: generar (ej. 1-5 jun), cambiar fechas y
+     descargar sin regenerar → título con el rango nuevo, datos del viejo
+     (Plataformas y Series; el texto de pantalla también cambia).
+R2-4 (MEDIA) Reporte Plataformas (pantalla): "Total registros procesados" ignora el
+     filtro de fecha (dice 383 con 1-5 jun, debían ser 101).
+R2-5 (MEDIA) Plataforma sin Grupo de Esfuerzo → horas en "OTROS", columna oculta en
+     Reporte Editores (pantalla y Excel) pero incluida en TOTAL: las columnas no
+     suman el total. El asistente deja el grupo vacío. (Importante al registrar
+     COMPLIANCE.)
+R2-6 (MEDIA, decidir) % Ocupación usa base fija 192 h (1 mes). Con 2 meses en el
+     input o filtrando una semana, el % sale mal.
+R2-7 (BAJA) Fila con PLATFORM = BRAZIL en el input → "plataforma no registrada"
+     (BRAZIL solo existe derivada de LATAM por BRA_). Hoy la macro manda LATAM.
+R2-8 (BAJA) "Descargar Template Excel" (Cargar Excel) está vieja: faltan SERIE, HN,
+     DURATION, CLIP, SHORT, EPS TITLE, EPS#.
+R2-9 (BAJA, dato) COMERCIALES trae "00:00:90:00" (90 en el lugar de segundos) → se lee
+     como 1:30. Revisar con quien hace la macro.
+R2-10 (BAJA) Reporte Series: filas que no suman horas (ej. IBERIA no registrada) salen
+     en 0 h sin decir por qué en ese reporte.
+R2-11 (BAJA) Reporte Editores (Excel): la fila TOTAL suma totales ya redondeados →
+     puede diferir 0.1 h del real.
+R2-12 (BAJA, empaquetado) Código y librerías sin uso: IndexedDBAdapter, ExcelExporter,
+     DataTable, axios, date-fns, react-router-dom (hacen el paquete más pesado).
+Verificado sin problemas: traducciones completas (pantalla y Excel), cálculo del
+input de junio (383 filas = 382 contadas + 1 en auditoría, 0 sin explicar).
+
+R2-1 — CERRADO (30 sep 2026)
+  Regla del usuario: si no tiene VERSION no se cuenta (para eso está la auditoría);
+  duración vacía o con formato malo → alerta en la auditoría.
+  Cambios (PlatformReportsEngine):
+    a) Con versión (LATAM/VOD/OFF AIR/IBERIA) sin VERSION → "Filas descartadas" con
+       motivo "sin VERSION". Antes salía por error en "contadas con duración estimada".
+       Versión registrada sin duración → descartada con motivo (antes, en silencio).
+    b) BP&I acepta minutos ("30") o tiempo ("00:30:00"), igual que por_duracion.
+       Vacía o texto → no cuenta y queda en "Filas descartadas" con el valor.
+    c) COMERCIALES: se sigue contando por pieza (pendiente TQC), pero si DURATION está
+       vacía o no es un tiempo válido HH:MM:SS → sección nueva de la Auditoría
+       "⚠️ Contadas con alerta" (pantalla y Excel).
+    Lector único de duración (parseMinutes / isValidTimecode): minutos y segundos
+    deben ser 00-59.
+  Junio: Plataformas, Editores y Series idénticos. Alerta nueva: COMERCIALES
+  "00:00:90:00" en 7 filas (= R2-9: 90 en el lugar de los segundos, se lee 1:30).
+  Pruebas automáticas: 46/46.
+  PENDIENTE: REPROSS → FAST GLOBAL tiene su propia lógica (forma de renderizar
+  columnas y datos), aún no registrada. Definir después.
+  R2-9 → PARA LA REUNIÓN CON TQC: formato de DURATION en COMERCIALES. Input junio,
+  Sheet1 col. K, filas 53, 75, 103, 104, 145, 146, 160: "00:00:90:00" (debería ser
+  "00:01:30:00"). Hoy la app lo lee como 1:30 y lo marca como alerta.
+
+PUNTO 3 (TQC) — REPROCESO (REPROSS) Y FAST GLOBAL — ANÁLISIS (30 sep 2026)
+  Formato pedido (imagen del usuario, sección COMPLIANCE → FAST GLOBAL):
+    Editor | SERIES 60 MIN | Series 60 R | Series 30 MIN | Series 30 Min R |
+    PELÍCULAS | PELICULAS REPROSS | MINUTOS | TOTAL
+    + filas finales "TOTAL NEW" (sin reproceso) y "REPROSS" (solo reproceso).
+    Las columnas "R" aparecen solo si el input trae REPROSS en la columna I (VERSION).
+  Verificado con los números de la imagen: películas = 120 min; MINUTOS y TOTAL
+  del editor incluyen nuevo + reproceso; TOTAL NEW 17,880 min / 527 y REPROSS
+  4,950 min / 63 cuadran.
+  En COMPLIANCE_Junio_2026 (viejo): FAST GLOBAL 156 filas; 27 con REPROSS en I
+  (bien) y 21 con REPROSS en K=DURATION y columnas corridas (C = "SERIE 30M"/"MOVIE",
+  D = nombre de la serie) → error de la macro que la validación del input debe
+  detectar. Solo FAST GLOBAL tiene REPROSS.
+  Propuesta: lógica nueva en la familia "Por duración" con categorías por DURATION
+  (30/60/120, cada una con su tasa) + soporte de reproceso (VERSION = REPROSS).
+  Preguntas abiertas: tasa del reproceso; categorías 30/60/120; filas corridas;
+  ¿reproceso solo FAST GLOBAL?; ¿en Reporte Editores el reproceso va aparte?
+
+PUNTO 3 — REPROCESO + FAST GLOBAL: CONSTRUIDO (30 sep 2026)
+  Decisiones del usuario: tasa de reproceso propia (arranca en 1, editable); las
+  categorías por duración se crean en la librería (pueden venir más); en el Reporte
+  Editores el reproceso va en columna aparte (hasta que TQC confirme).
+  Lógica nueva: logica_duracion_categorias (familia ⏱ Por duración):
+    - DURATION elige la categoría de la librería con esa duración exacta (30/60/120...).
+      Duración sin categoría registrada → no cuenta, Auditoría "duración sin categoría
+      registrada". Dos categorías con la misma duración: no se permite.
+    - VERSION = "REPROSS" → reproceso: clave "R:<id>" en su columna "R" con su propia
+      tasa (reprocessRate de la categoría). Otro texto en VERSION → cuenta como nuevo
+      con alerta.
+  Dónde se ve:
+    Reporte Plataformas (pantalla): chips por categoría incluyen las "R" y una línea
+      "Nuevo vs reproceso: TOTAL NEW … / REPROSS …".
+    Excel platform_report, hoja de la plataforma: columnas "… R" en ámbar al lado de su
+      categoría (solo si el input trae REPROSS); al final filas TOTAL NEW y REPROSS con
+      la categoría y su R unidas, como el formato de TQC. Sin reproceso: fila TOTAL normal.
+    Reporte Editores (pantalla y Excel): columna aparte "<grupo> REPROSS" (ej.
+      "COMPLIANCE REPROSS") justo después de su grupo.
+    Librerías: asistente (paso 4 solo categorías, con Tasa y Tasa R; bloquea duración
+      repetida), Categorías (campo "🔁 Tasa de reproceso"), Editar plataforma (columna
+      "Tasa reproceso"), Validar librería (avisa tasa de reproceso faltante).
+  Pruebas: 6 casos nuevos (52/52) — replican la tabla del usuario (Adair 11,010 min /
+  322; Cheo 11,370 / 253). TQC junio idéntico.
+  Prueba con COMPLIANCE_Junio_2026 (viejo) registrando FAST GLOBAL: TOTAL NEW 108 /
+  4,260 min, REPROSS 27 / 1,590 min; las 21 filas corridas (REPROSS en K) quedan en
+  la Auditoría.
+  PARA USARLO: registrar FAST GLOBAL con ➕ Nueva Plataforma → "logica_duracion_
+  categorias", grupo COMPLIANCE, categorías 30 / 60 / 120 con tasa 1 y tasa R 1.
+  Pendiente: validación del input al cargar (filas con columnas corridas, etc.).
+  Respaldo preparado (30 sep): Downloads\libreria_tracking_2026-09-30_con_FAST_GLOBAL.json
+  = respaldo del 28 sep 19:37 + FAST GLOBAL (logica_duracion_categorias, grupo
+  COMPLIANCE) + categorías Series (30 min), Series (60 min), Películas (120 min), tasa 1
+  y tasa R 1. Probado: TQC junio idéntico; FAST GLOBAL con COMPLIANCE viejo OK.
+
+ANCHO DE PÁGINA (30 sep 2026)
+  El Reporte Editores necesitaba barra horizontal: la app tenía ancho máximo 1400 px.
+  Ahora usa todo el ancho de la pantalla (App.css) y los títulos de columna del
+  Reporte Editores van en dos líneas ("Horas" arriba, grupo abajo) → columnas más
+  angostas, cabe sin barra también en pantallas más chicas.
+
+PLATAFORMAS COMPLIANCE AGREGADAS (30 sep 2026) — paso 4 del plan de familias
+  Respaldo: Downloads\libreria_tracking_2026-09-30_con_COMPLIANCE.json (= el de FAST
+  GLOBAL + 8 plataformas). Todas logica_duracion_categorias, grupo COMPLIANCE (el
+  usuario no confirmó el grupo; se puede cambiar), categorías 30/60/120 con tasa 1 y
+  tasa R 1: GAME SHOW NETWORK, GSN FAST CHANEL, GSN VOD, CINEVAULT, FAST CHANNELS,
+  GREAT FAST, TV MASTERING, QC DATABASE. Solo FAST GLOBAL usa REPROSS (las demás
+  nunca muestran columnas R).
+  Prueba: TQC junio idéntico. COMPLIANCE viejo: FAST GLOBAL, CINEVAULT, GSN FAST CHANEL,
+  QC DATABASE y GSN VOD calculan; GSN TIME TAILOR, NEW FAST y US NETS salen como
+  "no registradas" (nombres del archivo viejo que no están en la lista).
+  Ajuste (30 sep): Librerías → 📂 Categorías → filtro "Filtrar por plataforma" estaba
+  fijo en LATAM/OFF AIR/IBERIA/VOD. Ahora muestra solas todas las plataformas que usan
+  categorías (con versión + logica_duracion_categorias). Sub-pestaña renombrada
+  "📂 Por categoría (con versión y por duración)"; el ⚠ de la pestaña avisa si alguna
+  de esas plataformas no tiene categorías. (📦 Versiones sigue solo con las de versión.)
+
+SOLO LO QUE TRAE EL INPUT (30 sep 2026)
+  Reporte Editores (pantalla y Excel) armaba una columna por CADA grupo de la librería
+  (ej. "Horas OFF AIR" toda en 0 aunque junio no trae OFF AIR). Ahora solo muestra los
+  grupos de las plataformas que vienen en el input. Junio: LATAM | IBERIA | VOD |
+  COMERCIALES | SONY ONE | AMAZON | BP&I (sin OFF AIR, YOUTUBE ni COMPLIANCE).
+  Plataformas y Series ya mostraban solo lo del input.
+  Además (cierra R2-5): la columna OTROS ya no se esconde; aparece solo si alguna
+  plataforma del input no tiene grupo, así sus horas se ven (antes sumaban al TOTAL
+  sin columna). Pruebas: 54/54.
+
+CORRECCIÓN GRUPOS COMPLIANCE (30 sep 2026)
+  Error: se pusieron las 9 plataformas en el grupo "COMPLIANCE" sin confirmarlo; el
+  usuario aclaró que COMPLIANCE es un departamento, no una plataforma → el Reporte
+  Editores mostraba solo 2 columnas (COMPLIANCE / COMPLIANCE REPROSS).
+  Respaldo corregido: Downloads\libreria_tracking_2026-09-30_grupos_por_plataforma.json
+  (= respaldo del usuario libreria_tracking_2026-09-30.json con effortGroup = nombre
+  de la plataforma en las 9; todo lo demás idéntico).
+  Con COMPLIANCE_Septiembre_2026: columnas FAST GLOBAL | FAST GLOBAL REPROSS | GAME SHOW
+  NETWORK | GSN FAST CHANEL | GSN VOD | FAST CHANNELS | GREAT FAST | TV MASTERING |
+  QC DATABASE; total 357.5 h (igual que antes, solo repartido por plataforma).
+  Pendientes de ese archivo: 107 filas con DURATION "NAN" sin contar (QC DATABASE,
+  TV MASTERING, GREAT FAST, CINEVAULT, GSN VOD); editores con nombre invertido entre
+  TQC y COMPLIANCE ("Jose Guerrero" / "Guerrero Jose", etc.).
+  Ajuste: el Reporte Plataformas tenía su propio ancho máximo de 1100 px centrado → con
+  la página a ancho completo quedaba corrido a la derecha. Ahora usa todo el ancho, como
+  Editores y Series. (TOTAL NEW / REPROSS en pantalla = separación nuevo vs reproceso,
+  solo informativa; no cambia cálculos.)
+
+VALIDACIÓN INPUTS DE SEPTIEMBRE (30 sep 2026) — librería grupos_por_plataforma
+  COMPLIANCE_Septiembre_2026: 92/92 valores = cálculo independiente; coincide con la
+    pantalla del usuario (FAST GLOBAL 182 / 7,710 min; NEW 83 / 3,750; REPROSS 99 /
+    3,960; total 444 ítems / 21,450 min). 551 filas = 444 contadas + 107 en auditoría.
+  TQC_Septiembre_2026 1: Plataformas 134/134, Series 178/178, Editores 52/53 (1 solo
+    redondeo 31.25→31.3).
+  Hallazgos para decidir:
+    - FAST GLOBAL, columna VERSION trae además de REPROSS: "NUEVO TODO" (33), "2P-todo"
+      (32), "2P" (17), "NUEVO REPROSS" (1) → hoy se cuentan como NUEVO con alerta.
+    - TQC: versiones estimadas por sufijo: LAT_SUB_HD 11 (1), BRA_SUB_HD 11 (2) — el 11
+      no existe en la numeración → se estimó 30 min; LAT_SUB_HD 6 (1), BRA_SUB_HD 6 (2),
+      BRA_SUB_SQZ_CREDITS_HD 9 (1) sin registrar. IBERIA "p- FHD4BVOAFRISCb" 9 filas
+      no contadas.
+    - Editores con nombre invertido / escrito distinto: Raquel Carrion↔Raquel Carreon,
+      Navarro Genaro, Trujillo Yralin, Segura Ana, Dack Eimiro, Isabel.
+    - COMERCIALES "00:00:90:00" (2 filas) → reunión TQC.
+
+REGLAS NUEVAS (1 oct 2026)
+  1) Versión no registrada: NO se cuenta, no se suma, no se muestra, no se estima.
+     Se quitó la estimación por sufijo de logica_de_versiones (LATAM/VOD/OFF AIR); ahora
+     igual que IBERIA: queda en Auditoría → "No registradas — EXCLUIDAS" y en "Filas
+     descartadas" con motivo "versión no registrada". Se quitó la sección "contadas con
+     duración estimada" (pantalla y Excel).
+     Efecto: junio 382 → 366 ítems, 660.96 → 646.96 h (las 16 filas "TBD" de La Llorona
+     ya no cuentan: queda resuelta esa decisión pendiente). Septiembre TQC 452 → 445
+     ítems, 608.46 → 596.83 h. Para que cuenten hay que registrarlas: LAT_SUB_HD 11,
+     BRA_SUB_HD 11 (el 11 no existe en la numeración → revisar), LAT_SUB_HD 6,
+     BRA_SUB_HD 6, BRA_SUB_SQZ_CREDITS_HD 9, IBERIA p- FHD4BVOAFRISCb y p- F HD Ci3BAFRISCr.
+  2) Tiempos mal escritos (minutos o segundos > 59, ej. 00:90:00): aviso con motivo
+     propio "DURATION con tiempo inválido (minutos o segundos mayores a 59)". En las
+     lógicas por duración la fila no cuenta; en COMERCIALES se cuenta con alerta.
+  3) Editores: el nombre correcto es "Apellido Nombre".
+  Pruebas: 55/55.
+
+AUDITORÍA CON NÚMERO DE FILA + EDITORES ESTRICTOS (1 oct 2026)
+  Pedido del usuario: todo valor no reconocido o incorrecto del input debe decir en qué
+  fila del Excel está; editores solo "Apellido Nombre" y, si no coincide, avisar que se
+  corrija en el input; VERSION rara en FAST GLOBAL = dato basura con aviso; versión no
+  registrada = avisar que hay que crearla; R2-3 y R2-4 corregidos; ocupación siempre
+  sobre 192 h (R2-6 cerrado, sin cambios).
+  Cambios:
+    - ExcelParser guarda el número de fila del Excel (__row) en cada registro.
+    - Auditoría (pantalla y Excel): cada motivo dice "filas del Excel: 283-312, 314…".
+      También las fechas inválidas.
+    - Editores: solo cuenta el nombre registrado tal cual (se ignoran mayúsculas y
+      espacios, NO el orden). Sin alias. Si no coincide → no se cuenta y la Auditoría
+      dice "editor no registrado — corregir en el input (Apellido Nombre)" con filas.
+      Vacío → "sin EDITOR". Se quitó la ventana que pedía resolver editores al cargar
+      (EditorResolver.jsx borrado; está en git) y la columna de alias en Librerías →
+      Editores.
+    - FAST GLOBAL VERSION distinta de REPROSS → alerta "VERSION no reconocida (dato
+      basura; se contó como nuevo)".
+    - Versión no registrada → "versión no registrada — créala en Librerías → Versiones".
+    - R2-3: el período del reporte se guarda al generar (pantalla y Excel ya no cambian
+      si mueven las fechas sin regenerar). Plataformas y Series.
+    - R2-4: "Total registros procesados" = filas que sí se contaron dentro del período.
+  Pruebas: 60/60.
+  Respaldo preparado: Downloads\libreria_tracking_2026-10-01_editores_apellido_nombre.json
+    (= grupos_por_plataforma con editores solo Apellido Nombre: quitados 6 duplicados en
+    orden viejo + "Nan"; invertidos Segura Ana, Genaro Angel, Dack Eimiro, Cedeño Luis,
+    Carreon Raquel, Trujillo Yralin → 17 editores).
+  Con ese registro, TQC septiembre: 184 filas no cuentan por editor mal escrito en el
+    input ("Navarro Genaro", "Raquel Carrion", "Luis Cedeño", "Isabel"). Cada fila tiene
+    UN motivo (el primero que encuentra); al corregir el editor pueden salir otros.
+
+1 oct 2026 (cont.)
+  - NAN: decisión del usuario "como si no hubiera nada" → ExcelParser convierte "NAN"/"nan"
+    en celda vacía en TODAS las columnas (DURATION NAN = "sin DURATION", EDITOR nan =
+    "sin EDITOR"). Prueba nueva con un Excel real (lectura.test.js). 61/61.
+  - R2-8 hecho: "Descargar Template Excel" (Cargar Excel) ahora trae las 12 columnas del
+    input actual en su orden + hoja "Instrucciones" (formato de cada columna).
+  - R2-12 descartado por el usuario.
+  - Versiones con sufijo 11 (TQC_Septiembre_2026 1, Sheet1, VOD): fila 403 LAT_SUB_HD 11
+    (Dack Eimiro), filas 404 y 407 BRA_SUB_HD 11 (Dack Eimiro / Trujillo Yralin), serie
+    AMERICA'S GOT TALENT.
+  - R2-11: la diferencia por redondeo en la fila TOTAL es mínima (TQC sep: 356.83 real vs
+    356.8 mostrado). Pendiente de decisión del usuario.
+
+GESTOR DE NÚMEROS FINALES DE VERSIÓN (1 oct 2026)
+  TQC confirmó que existen versiones con número final 11 = 120 min. El usuario aclaró:
+  la duración NO decide la categoría (puede ser serie o película: la elige el usuario) y
+  el número final no es necesariamente la cantidad de segmentos.
+  Hecho: la regla "número final → duración" dejó de estar fija en el código.
+    - Librerías → 📦 Versiones → panel "🔢 Números finales de versión → duración": tabla
+      editable (Desde | Hasta | Duración | qué plataformas tienen categoría de esa
+      duración). Arranca con 1-4 → 30, 5-6 → 60, 9-10 → 120. No deja reglas que se crucen.
+    - Registrar una versión (formulario y asistente) usa la tabla: número que no está →
+      no deja guardar y dice que lo agregue; la categoría tiene que ser de esa duración.
+    - Auditoría: versión no registrada con número fuera de la tabla → "su número final no
+      está en la tabla (agrégalo…) y luego créala"; si está → "créala en Librerías →
+      Versiones". Ninguna de las dos se cuenta.
+    - La tabla va en el respaldo (suffixRules); un respaldo viejo sin tabla no la borra.
+  R2-2 descartado por el usuario (la carga masiva de versiones ya no se usa).
+  Pruebas 68/68; build OK.
+  PARA PROBAR: agregar 11 → 120 en la tabla; registrar LAT_SUB_HD 11 y BRA_SUB_HD 11 en
+  VOD con su categoría de 120 min (serie o película); cargar TQC_Septiembre (filas 403,
+  404, 407).
+
+GESTOR DE VERSIONES — AJUSTES (1 oct 2026)
+  Pedido del usuario: números finales configurables uno por uno (no "desde-hasta");
+  etiqueta "(min)" duplicada; orden raro al configurar una versión.
+  - Tabla "🔢 Números finales de versión → duración": ahora UN NÚMERO POR FILA (Número
+    final | Duración | Categorías de esa duración). La duración se edita en la misma fila;
+    agregar = número + duración. Formato guardado {number, duration}; la tabla vieja
+    (desde-hasta) se convierte sola (navegador: persist v3; respaldos: al restaurar).
+  - Etiqueta duplicada: la lista de categorías del formulario de versión armaba
+    "nombre (Xmin)" y el nombre ya traía los minutos ("pelicula (120 min) (120min)").
+    Ahora usa la etiqueta limpia ("pelicula (120 min)").
+  - Formulario ➕ Nueva Versión reordenado en 3 pasos: 1) Plataforma (solo las de versión)
+    → 2) Nombre (su número final da la duración; si no está en la tabla, no deja seguir)
+    → 3) Categoría: solo las de esa duración (serie o película, la elige el usuario). Se
+    quitó el campo suelto "Duración" (se podía contradecir con el número final).
+  - "➕ Crear categoría" dentro del formulario: antes creaba la categoría SIN TASA y con
+    el nombre libre (así nació "serie (120min)" en LATAM, 1× estándar). Ahora pide nombre
+    base + tasa obligatoria (1 escrito) y la duración sale del número final.
+  Pruebas 69/69; build OK.
+
+COLUMNA "CONFIGURACIÓN" EN LIBRERÍAS → PLATAFORMAS (1 oct 2026)
+  Antes "Config" decía "✓ Lista" (verde) a las plataformas sin categorías SIN revisar
+  nada, y "✓ Con categorías" (azul) con tener 1 categoría: BP&I y YOUTUBE salían "Lista"
+  sin tener tasa. Ahora la columna "Configuración" usa una sola regla
+  (src/core/utils/platformStatus.js), la misma que el botón "🔍 Validar librería":
+    ✓ Completa  → tiene lo que su lógica necesita (categorías o casillas con duración y
+                  tasa, tasa de reproceso, tasa de plataforma, grupo de esfuerzo).
+    ⚠ Falta: …  → dice qué falta; clic → abre ✏️ Editar (o 📂 Categorías si no tiene).
+  Con la librería del 1 oct: todas completas menos BP&I y YOUTUBE (falta tasa de la
+  plataforma). Pruebas 74/74; build OK.

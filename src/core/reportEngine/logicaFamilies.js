@@ -41,12 +41,17 @@ export const LOGICA_FAMILIES = [
     key: 'por_duracion',
     title: '⏱ Por duración',
     column: 'DURATION',
-    desc: 'Los minutos salen de la columna DURATION de cada fila. Una sola tasa para toda la plataforma.',
+    desc: 'Los minutos salen de la columna DURATION de cada fila. La tasa va en la plataforma o, con categorías, en cada categoría.',
     options: [
       {
         value: 'logica_por_duracion',
         label: 'logica_por_duracion',
         desc: 'Minutos = DURATION ("30" o "00:30:00"). Horas = minutos ÷ 60 × tasa. Para plataformas digitales (COMPLIANCE).',
+      },
+      {
+        value: 'logica_duracion_categorias',
+        label: 'logica_duracion_categorias',
+        desc: 'DURATION elige la categoría de la librería con esa duración (ej. 30 → serie 30, 120 → película); cada categoría tiene su tasa. Si VERSION dice REPROSS la fila es reproceso: va en su columna R, con su propia tasa. Ej.: FAST GLOBAL.',
       },
       {
         value: 'logica_bp_i',
