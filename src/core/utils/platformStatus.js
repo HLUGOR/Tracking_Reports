@@ -28,9 +28,6 @@ export function platformProblems(platform, categories = []) {
     cats.forEach((c) => {
       if (!(Number(c.duration) > 0)) problems.push(`duración de "${c.name}"`);
       if (!isValidRate(c.effortRate)) problems.push(`tasa de "${c.name}"`);
-      if (logica === 'logica_duracion_categorias' && !isValidRate(c.reprocessRate)) {
-        problems.push(`tasa de reproceso de "${c.name}"`);
-      }
     });
   }
 

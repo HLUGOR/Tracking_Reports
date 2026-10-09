@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 export function downloadTemplateExcel() {
   const headers = [
     'PLATFORM', 'HN', 'SERIE', 'SEASON', 'EPS TITLE', 'EPS#',
-    'CLIP', 'SHORT', 'VERSION', 'EDITOR', 'DURATION', 'APPROVED_DATE',
+    'CLIP', 'SHORT', 'VERSION', 'EFFORT', 'EDITOR', 'DURATION', 'APPROVED_DATE',
   ];
   const ws = XLSX.utils.aoa_to_sheet([headers]);
   ws['!cols'] = headers.map((h) => ({ wch: Math.max(12, h.length + 2) }));
@@ -23,7 +23,8 @@ export function downloadTemplateExcel() {
     ['EPS#', 'Número de episodio', 'EP# 0302'],
     ['CLIP', 'YOUTUBE: cantidad de clips', '2'],
     ['SHORT', 'YOUTUBE: cantidad de shorts', '1'],
-    ['VERSION', 'LATAM / VOD / OFF AIR / IBERIA: versión registrada en Librerías → Versiones. FAST GLOBAL: REPROSS = reproceso', 'LAT_ORI_HD 3 / REPROSS'],
+    ['VERSION', 'LATAM / VOD / OFF AIR / IBERIA: versión registrada en Librerías → Versiones', 'LAT_ORI_HD 3'],
+    ['EFFORT', 'Vacío (o el nombre de la plataforma) = tasa estándar. Un código (MC, PR, CEN, 1P, 2P...) usa la sub-tasa de la plataforma; puede venir con el nombre de la plataforma delante (FAST GLOBAL 2P). Con REPROSS (REPROSS, 2P REPROSS) = reproceso', 'MC / FAST GLOBAL 2P REPROSS'],
     ['EDITOR', 'Apellido Nombre, tal cual está en Librerías → Editores', 'Guerrero Jose'],
     ['DURATION', 'Minutos ("30") o tiempo HH:MM:SS[:FF] con minutos y segundos de 00 a 59', '30 / 00:01:30:00'],
     ['APPROVED_DATE', 'Fecha de aprobación, formato MM/DD/AAAA (mes primero)', '06/15/2026'],

@@ -1,5 +1,5 @@
 /**
- * Tabla de números finales de versión → duración (Librerías → Versiones).
+ * Tabla de segmentos → duración (Librerías → Versiones → Segmentos).
  */
 import {
   checkVersionSuffix, DEFAULT_SUFFIX_RULES, suffixRuleProblem, describeSuffixRules, normalizeSuffixRules,
@@ -10,13 +10,13 @@ import { library, row } from '../__fixtures__/library';
 
 const con11 = [...DEFAULT_SUFFIX_RULES, { id: 'r11', number: 11, duration: 120 }];
 
-describe('Números finales de versión', () => {
+describe('Segmentos → duración', () => {
   test('sin la regla, el 11 no se puede registrar; con la regla, vale 120 min', () => {
     expect(checkVersionSuffix('LAT_SUB_HD 11').invalidSuffix).toBe(11);
     expect(checkVersionSuffix('LAT_SUB_HD 11', con11)).toEqual({ duration: 120, invalidSuffix: null });
   });
-  test('un número por fila: no se repite y la duración es obligatoria', () => {
-    expect(suffixRuleProblem({ number: 10, duration: 120 }, DEFAULT_SUFFIX_RULES)).toMatch(/ya está en la tabla/);
+  test('una cantidad de segmentos por fila: no se repite y la duración es obligatoria', () => {
+    expect(suffixRuleProblem({ number: 10, duration: 120 }, DEFAULT_SUFFIX_RULES)).toMatch(/ya están en la tabla/);
     expect(suffixRuleProblem({ number: 11, duration: 0 }, DEFAULT_SUFFIX_RULES)).toMatch(/duración/);
     expect(suffixRuleProblem({ number: 0, duration: 120 }, DEFAULT_SUFFIX_RULES)).toMatch(/entero/);
     expect(suffixRuleProblem({ number: 11, duration: 120 }, DEFAULT_SUFFIX_RULES)).toBeNull();
@@ -32,12 +32,12 @@ describe('Números finales de versión', () => {
 
 describe('Auditoría de versiones no registradas', () => {
   const build = (lib) => PlatformReportsEngine.buildReport([row({ platform: 'LATAM', version: 'LAT_SUB_HD 11', excelRow: 403 })], null, null, lib, 'all');
-  test('número final fuera de la tabla: pide agregarlo primero (con su fila)', () => {
+  test('segmentos fuera de la tabla: pide agregarlos primero (con su fila)', () => {
     const d = build(library).audit.discardedByReason[0];
-    expect(d.motivo).toMatch(/su número final no está en la tabla/);
+    expect(d.motivo).toMatch(/sus segmentos no están en la tabla/);
     expect(d.rows).toEqual([403]);
   });
-  test('número final en la tabla: solo falta crear la versión; aun así NO se cuenta', () => {
+  test('segmentos en la tabla: solo falta crear la versión; aun así NO se cuenta', () => {
     const rep = build({ ...library, suffixRules: con11 });
     expect(rep.platforms).toHaveLength(0);
     expect(rep.audit.discardedByReason[0].motivo).toBe('versión no registrada — créala en Librerías → Versiones');

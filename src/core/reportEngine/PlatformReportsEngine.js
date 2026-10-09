@@ -16,8 +16,9 @@
  *                           horas = minutos ÷ 60 × tasa de la plataforma (COMPLIANCE)
  *   - logica_duracion_categorias : DURATION decide la categoría (la de la librería con esa
  *                           duración exacta, ej. 30/60/120) y cada categoría tiene su tasa.
- *                           VERSION = "REPROSS" marca la fila como REPROCESO: va a su
- *                           columna "R" (clave "R:<id categoría>") con su propia tasa.
+ *                           Un código EFFORT con REPROSS ("REPROSS", "2P REPROSS") marca la fila
+ *                           como REPROCESO: va a su columna "R" (clave "R:<id categoría>") con la
+ *                           sub-tasa de ese código.
  *
  * Columnas esperadas del Excel (post-mapeo por ColumnMapper):
  *   EDITOR, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE, DURATION (comerciales), MINUTOS (bp&i)
@@ -40,11 +41,45 @@ const groupByReason = (list) => Object.values(list.reduce((acc, d) => {
   return acc;
 }, {})).sort((a, b) => b.count - a.count);
 
-// Reproceso (logica_duracion_categorias): VERSION = "REPROSS". En byCategory la fila va
+// Reproceso (logica_duracion_categorias): EFFORT con REPROSS. En byCategory la fila va
 // a la clave "R:<id de la categoría>" para contarla y tasarla aparte de lo nuevo.
 export const REPROCESS_MARK = 'REPROSS';
 export const REPROCESS_PREFIX = 'R:';
 export const isReprocessKey = (key) => String(key).startsWith(REPROCESS_PREFIX);
+
+// EFFORT (columna del input): código de proceso que cambia la tasa de la fila sin cambiar
+// su plataforma ni su categoría (ej. VOD "MC" / "PR", FAST GLOBAL "1P" / "2P").
+// Vacío o igual al nombre de la plataforma = tasa estándar.
+export const effortCode = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+// Código EFFORT de una plataforma: el input puede traerlo con el nombre de la plataforma
+// delante ("FAST GLOBAL 2P" = código 2P de FAST GLOBAL); ese prefijo se quita. El nombre
+// solo (o vacío) = tasa estándar → ''. Vale igual para los códigos de la librería.
+export const platformEffortCode = (value, platform) => {
+  const code = effortCode(value);
+  const names = [platform?.displayName, platform?.name].map(effortCode).filter(Boolean)
+    .sort((a, b) => b.length - a.length); // el más largo primero ("LATAM & BRASIL…" antes que "LATAM")
+  for (const n of names) {
+    if (code === n) return '';
+    if (code.startsWith(`${n} `)) return code.slice(n.length + 1);
+  }
+  return code;
+};
+// Reproceso: el código EFFORT lleva la palabra REPROSS ("REPROSS", "2P REPROSS").
+export const isReprocessEffort = (code) => effortCode(code).split(' ').includes('REPROSS');
+export const rowEffort = (row) => {
+  const key = Object.keys(row).find((k) => ['EFFORT', 'EFFORTS', 'EFFORS'].includes(String(k).trim().toUpperCase()));
+  return key ? String(row[key] ?? '').trim() : '';
+};
+// Clave de tasa de una fila: la categoría (o casilla) para lógicas con categorías; una sola
+// clave para las lógicas de tasa única. El reproceso usa la sub-tasa de su categoría base.
+export const PLATFORM_RATE_KEY = '__platform__';
+const effortRateFor = (effortRates, code, catKey, platform) => {
+  const entry = (effortRates || []).find((e) => platformEffortCode(e.code, platform) === code);
+  if (!entry) return null;
+  const baseKey = String(catKey).startsWith('R:') ? String(catKey).slice(2) : String(catKey);
+  const r = parseFloat(entry.rates?.[baseKey]);
+  return r > 0 ? r : null;
+};
 
 // Lógica por defecto para plataformas no configuradas explícitamente
 const DEFAULT_LOGICA = 'logica_de_versiones';
@@ -67,12 +102,12 @@ class PlatformReportsEngine {
     const { platforms = [], categories = [], versions = [] } = library;
     // Registro de editores (solo si la librería lo trae): nombre exacto "Apellido Nombre"
     const editorIndex = Array.isArray(library.editors) ? buildEditorIndex(library.editors) : null;
-    // Tabla de números finales de versión → duración (Librerías → Versiones)
+    // Tabla de segmentos → duración (Librerías → Versiones → Segmentos)
     const suffixRules = library.suffixRules || DEFAULT_SUFFIX_RULES;
-    // Motivo de auditoría de una versión no registrada: si su número final no está en la
+    // Motivo de auditoría de una versión no registrada: si su cantidad de segmentos no está en la
     // tabla, hay que agregarlo primero; si está, solo falta crear la versión.
     const unregisteredMotivo = (version) => (checkVersionSuffix(version, suffixRules).invalidSuffix !== null
-      ? 'versión no registrada — su número final no está en la tabla (agrégalo en Librerías → Versiones → Números finales) y luego créala'
+      ? 'versión no registrada — sus segmentos no están en la tabla (agrégalos en Librerías → Versiones → Segmentos) y luego créala'
       : 'versión no registrada — créala en Librerías → Versiones');
 
     // Construir mapa de plataformas válidas: solo las registradas en libraryStore
@@ -232,6 +267,15 @@ class PlatformReportsEngine {
       const cfg = plataformaConfig[platform];
       const logica = cfg?.logica || DEFAULT_LOGICA;
 
+      // ── EFFORT: vacío (o el nombre de la plataforma) = tasa estándar; un código tiene
+      //    que estar configurado en la plataforma (Librerías → Plataformas → ✏️ Editar) ──
+      const effortRaw = rowEffort(row);
+      const effort = platformEffortCode(effortRaw, cfg || { name: platform });
+      if (effort && !(cfg?.effortRates || []).some((e) => platformEffortCode(e.code, cfg) === effort)) {
+        discard(row, platform, 'EFFORT no configurado en esta plataforma — agrégalo en Librerías → Plataformas → ✏️ Editar', effortRaw);
+        return;
+      }
+
       // ── Clasificar según lógica ───────────────────────────────────────────
       let classified;
 
@@ -261,8 +305,15 @@ class PlatformReportsEngine {
           discard(row, platform, 'duración sin categoría registrada', durationRaw);
           return;
         }
-        const isReprocess = version.toUpperCase() === REPROCESS_MARK;
-        if (version && !isReprocess) warn(row, platform, 'VERSION no reconocida (dato basura; se contó como nuevo)', version);
+        // Reproceso: lo marca SOLO la columna EFFORT (código con REPROSS). VERSION ya no
+        // decide; si dice otra cosa, se avisa para corregir el input.
+        const isReprocess = isReprocessEffort(effort);
+        if (version.toUpperCase() === REPROCESS_MARK && !isReprocess) {
+          warn(row, platform, 'REPROSS en VERSION pero no en EFFORT — el reproceso va en la columna EFFORT (se contó como nuevo)',
+            `EFFORT: ${effortRaw || 'vacío'}`);
+        } else if (version && version.toUpperCase() !== REPROCESS_MARK) {
+          warn(row, platform, 'VERSION no reconocida (dato basura; no cambia el conteo, manda EFFORT)', version);
+        }
         classified = {
           category_key: isReprocess ? `${REPROCESS_PREFIX}${cat.id}` : cat.id,
           duration_minutes: minutes,
@@ -355,7 +406,7 @@ class PlatformReportsEngine {
         };
       } else {
         // logica_de_versiones: la VERSION tiene que estar en la librería. Si no está,
-        // no se cuenta (antes se estimaba la duración por el número final del nombre).
+        // no se cuenta (antes se estimaba la duración por los segmentos del nombre).
         classified = VersionMatcher.classify(version, versions, categories, cfg?.id);
         if (!classified.registered) {
           unregisteredVersionsDiscarded.add(version);
@@ -395,6 +446,16 @@ class PlatformReportsEngine {
           ? rawCategoryKey
           : resolveCategoryForPlatform(rawCategoryKey, duration_minutes, effectivePlatform, platform);
 
+      // Clave de tasa de la fila y, si trae EFFORT, que ese código tenga tasa para ella
+      const rateKey = (classified.isPorDuracion || classified.isBPI || classified.isComerciales || classified.isYoutube)
+        ? PLATFORM_RATE_KEY
+        : String(category_key);
+      if (effort && effortRateFor(cfg?.effortRates, effort, rateKey, cfg) === null) {
+        discard(row, platform, 'EFFORT sin tasa para esta duración/categoría — complétala en Librerías → Plataformas → ✏️ Editar',
+          `${effortRaw} · ${duration_minutes} min`);
+        return;
+      }
+
       // ── Acumular en platformMap ───────────────────────────────────────────
       if (!platformMap[effectivePlatform]) platformMap[effectivePlatform] = {};
       if (!platformMap[effectivePlatform][editor]) {
@@ -404,7 +465,16 @@ class PlatformReportsEngine {
           totalCount: 0,
           totalMinutes: 0,
           totalSeconds: 0,
+          // Partes para las horas de esfuerzo: { "clave§EFFORT": { rateKey, effort, count, minutes } }
+          effortParts: {},
         };
+      }
+      {
+        const parts = platformMap[effectivePlatform][editor].effortParts;
+        const pk = `${rateKey}§${effort}`;
+        parts[pk] ??= { rateKey, effort, count: 0, minutes: 0 };
+        parts[pk].count += classified.isYoutube ? (classified.clips + classified.shorts) : 1;
+        parts[pk].minutes += duration_minutes;
       }
       // Para logica_comerciales, logica_bp_i y logica_por_duracion no acumulamos por categoría (category_key es null)
       // Para logica_youtube acumulamos CLIPS y SHORTS en byCategory
@@ -624,7 +694,8 @@ class PlatformReportsEngine {
     libCategories.forEach((c) => {
       const dur = Number(c.duration) || 0;
       categoryInfoMap[String(c.id)] = { effortRate: rateOrStandard(c.effortRate), durationHours: dur / 60 };
-      categoryInfoMap[`${REPROCESS_PREFIX}${c.id}`] = { effortRate: rateOrStandard(c.reprocessRate), durationHours: dur / 60 };
+      // Reproceso: misma duración; la tasa es siempre la sub-tasa de su código EFFORT
+      categoryInfoMap[`${REPROCESS_PREFIX}${c.id}`] = { effortRate: null, durationHours: dur / 60 };
     });
 
     // platformName → { effortGroup, logica, platformEffortRate, rateMap }
@@ -641,9 +712,12 @@ class PlatformReportsEngine {
         }
       });
       platCfgMap[name] = {
+        platform: p,
         effortGroup: (p.effortGroup || '').trim() || 'OTROS',
         logica: p.logica || 'logica_de_versiones',
         platformEffortRate: rateOrStandard(p.platformEffortRate),
+        // Sub-tasas por EFFORT: [{ code, rates: { claveCategoría | '__platform__': tasa } }]
+        effortRates: p.effortRates || [],
         // Un solo mapa de tarifas por plataforma: las claves de byCategory son ids de
         // categoría (logica_de_versiones / iberia_especial) o el texto de la casilla
         // (logica_sin_version). Nunca coinciden entre sí, así que se pueden buscar en
@@ -677,8 +751,8 @@ class PlatformReportsEngine {
     (platformResult.platforms || []).forEach((plt) => {
       const platName = (plt.platform || '').trim().toUpperCase();
       const parentName = subPlatformParentMap[platName];
-      const cfg = platCfgMap[platName] || (parentName ? platCfgMap[parentName] : null) || { effortGroup: 'OTROS', logica: 'logica_de_versiones', platformEffortRate: 1, rateMap: categoryInfoMap };
-      const { effortGroup, logica, platformEffortRate, rateMap } = cfg;
+      const cfg = platCfgMap[platName] || (parentName ? platCfgMap[parentName] : null) || { effortGroup: 'OTROS', logica: 'logica_de_versiones', platformEffortRate: 1, rateMap: categoryInfoMap, effortRates: [] };
+      const { effortGroup, logica, platformEffortRate, rateMap, effortRates, platform: libPlatform } = cfg;
       usedGroups.add(effortGroup);
 
       plt.editors.forEach((ed) => {
@@ -690,29 +764,35 @@ class PlatformReportsEngine {
         }
 
         let hours = 0;
-        if (logica === 'logica_comerciales') {
-          hours = (ed.totalCount || 0) * platformEffortRate;
-        } else if (logica === 'logica_bp_i' || logica === 'logica_por_duracion') {
-          hours = ((ed.totalMinutes || 0) / 60) * platformEffortRate;
-        } else if (logica === 'logica_youtube') {
-          hours = (ed.totalCount || 0) * platformEffortRate;
-        } else {
-          // logica_de_versiones, iberia_especial, logica_sin_version:
-          // count × (duracion_min / 60) × effortRate, buscando en el mapa único de tarifas.
-          Object.entries(ed.byCategory || {}).forEach(([catKey, catData]) => {
+        // Cada parte = filas con la misma categoría (o tasa única) y el mismo EFFORT.
+        // Tasa: la sub-tasa del EFFORT si trae uno; si no, la estándar de la librería.
+        Object.values(ed.effortParts || {}).forEach((part) => {
+          const catKey = part.rateKey;
+          let h = 0;
+          if (catKey === PLATFORM_RATE_KEY) {
+            const rate = part.effort ? effortRateFor(effortRates, part.effort, catKey, libPlatform) : platformEffortRate;
+            if (rate == null) return;
+            h = (logica === 'logica_bp_i' || logica === 'logica_por_duracion')
+              ? (part.minutes / 60) * rate          // por minuto
+              : part.count * rate;                  // por pieza (COMERCIALES, YOUTUBE)
+          } else {
+            // logica_de_versiones, iberia_especial, logica_sin_version, duracion_categorias:
+            // count × (duración de la categoría / 60) × tasa
             const info = rateMap[String(catKey)];
             if (info == null) return;
-            const h = (catData.count || 0) * info.durationHours * info.effortRate;
-            if (isReprocessKey(catKey)) {
-              // Reproceso: columna aparte (por ahora, hasta que TQC confirme)
-              const rGroup = `${effortGroup} ${REPROCESS_MARK}`;
-              reprocessGroups.add(effortGroup);
-              editorMap[ed.editor].byGroup[rGroup] = (editorMap[ed.editor].byGroup[rGroup] || 0) + h;
-            } else {
-              hours += h;
-            }
-          });
-        }
+            const rate = part.effort ? effortRateFor(effortRates, part.effort, catKey, libPlatform) : info.effortRate;
+            if (rate == null) return;
+            h = (part.count || 0) * info.durationHours * rate;
+          }
+          if (isReprocessKey(catKey)) {
+            // Reproceso: columna aparte (por ahora, hasta que TQC confirme)
+            const rGroup = `${effortGroup} ${REPROCESS_MARK}`;
+            reprocessGroups.add(effortGroup);
+            editorMap[ed.editor].byGroup[rGroup] = (editorMap[ed.editor].byGroup[rGroup] || 0) + h;
+          } else {
+            hours += h;
+          }
+        });
 
         editorMap[ed.editor].byGroup[effortGroup] += hours;
       });

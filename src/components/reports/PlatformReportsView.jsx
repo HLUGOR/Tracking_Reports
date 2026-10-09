@@ -445,6 +445,19 @@ function PlatformReportsView() {
           }
         });
       });
+
+      // GRAN TOTAL = nuevo + reproceso. La celda de cada categoría unida con su "R" lleva la suma.
+      const grandCells = sortedCats.map((cat) => plt.totalByCategory[cat]?.count || 0);
+      const grandTotRow = ws.addRow([e('GRAN TOTAL'), ...grandCells, Math.round(plt.totalMinutes), plt.totalCount]);
+      grandTotRow.height = 18;
+      for (let i = 1; i <= totalCols; i++) applyTotalCell(grandTotRow.getCell(i), grandTotRow.getCell(i).value);
+      sortedCats.forEach((cat, i) => {
+        const next = sortedCats[i + 1];
+        if (!isReprocessKey(cat) && next && isReprocessKey(next) && next.slice(2) === String(cat)) {
+          ws.mergeCells(grandTotRow.number, 2 + i, grandTotRow.number, 3 + i);
+          applyTotalCell(grandTotRow.getCell(2 + i), grandCells[i] + grandCells[i + 1]);
+        }
+      });
     }
 
     // ── Hoja RESUMEN ───────────────────────────────────────────────────────
@@ -831,6 +844,7 @@ function PlatformReportsView() {
                                 <span className="pr-cat-title">{t('Nuevo vs reproceso:')}</span>
                                 <span className="pr-cat-chip">{t('TOTAL NEW')}: {sum(false, 'count')} ({formatMinutes(sum(false, 'minutes'))} {t('min')})</span>
                                 <span className="pr-cat-chip" style={{ borderLeft: '4px solid #b45309' }}>REPROSS: {sum(true, 'count')} ({formatMinutes(sum(true, 'minutes'))} {t('min')})</span>
+                                <span className="pr-cat-chip" style={{ fontWeight: 700 }}>{t('GRAN TOTAL')}: {plt.totalCount} ({formatMinutes(plt.totalMinutes)} {t('min')})</span>
                               </div>
                             );
                           })()}

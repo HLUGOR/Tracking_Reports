@@ -295,6 +295,13 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
+/* Editar plataforma: tabla de tasas con columnas de EFFORT */
+.form-modal.form-modal-wide {
+  max-width: 980px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
 .form-modal h3 {
   margin: 0 0 16px 0;
   font-size: 20px;

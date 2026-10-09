@@ -1133,3 +1133,116 @@ COLUMNA "CONFIGURACIÓN" EN LIBRERÍAS → PLATAFORMAS (1 oct 2026)
     ⚠ Falta: …  → dice qué falta; clic → abre ✏️ Editar (o 📂 Categorías si no tiene).
   Con la librería del 1 oct: todas completas menos BP&I y YOUTUBE (falta tasa de la
   plataforma). Pruebas 74/74; build OK.
+
+COLUMNA EFFORT — SUB-TASAS POR PROCESO (8 oct 2026)
+  Nuevo input (Input Report\TQC_Octubre_2026.xlsx) trae la columna J "EFFORT". Regla del
+  usuario: EFFORT vacío (o el nombre de la plataforma) = tasa estándar; un código cambia
+  SOLO la tasa de esa fila: sigue en la misma plataforma y categoría, mismo reporte.
+  Códigos confirmados (tasa = 1 + % del cuadro de TQC):
+    VOD: PR / MC · OFF AIR: PR / MC · SONY ONE: PR / MC · LATAM: CEN
+    FAST GLOBAL: 1P / 2P / REPROSS / 2P REPROSS · GAME SHOW NETWORK: TIME TAILOR
+    TV MASTERING: CONFORMING / ENTREGAS DBB · QC DATABASE: SPOT QC / FULL QC / SHOW GAME
+    GREAT FAST: S&P (vacío = NEW Great Fast)
+  Hecho:
+    - Motor: lee EFFORT; código no configurado en la plataforma → no cuenta, Auditoría
+      con su fila; código sin tasa para esa duración ("—" en el cuadro) → Auditoría.
+      Horas por parte (categoría + EFFORT) con la sub-tasa o la estándar. FAST GLOBAL:
+      EFFORT con REPROSS = reproceso (columna R).
+    - Librerías → Plataformas → ✏️ Editar: sección "🏷 Sub-tasas por EFFORT" (código +
+      tasa por categoría/casilla o tasa única, con su % de TQC al lado) y "Nombre para
+      mostrar" (ej. LATAM & Brasil Networks; en el input sigue siendo LATAM). La tabla de
+      plataformas muestra el nombre para mostrar y los EFFORT configurados.
+    - Plantilla con columna EFFORT. Pruebas 80/80; build OK.
+  Octubre: EFFORT trae "IBERIA", "BP&I", "COMERCIALES" y vacío → todo tasa estándar.
+  PENDIENTE (datos): cargar en la librería las tasas estándar y sub-tasas del cuadro,
+  el nombre "LATAM & Brasil Networks" y registrar plataformas nuevas → necesito el
+  respaldo actual del usuario.
+
+REDISEÑO LIBRERÍAS → PLATAFORMAS / CATEGORÍAS (8 oct 2026)
+  Pedido del usuario: menos texto, ayuda en un botón "i"; la lista de plataformas no
+  informaba nada útil (Grupo repetía el nombre, Estado siempre "Activa"); mostrar tasa y
+  sub-tasas; Categorías con orden Nombre → Duración y con sub-tasas.
+  - Editar plataforma: arriba 4 datos en grilla (nombre en el input, nombre para mostrar,
+    lógica, grupo), cada uno con su "i" (la explicación solo aparece al pulsarla). Debajo
+    UNA tabla "⚡ Tasas de esfuerzo": filas = categorías (o casillas serie/película, o la
+    tasa única); columnas = Duración · Estándar · (Reproceso) · una columna por EFFORT
+    (➕ EFFORT agrega una; ✕ la quita). Cada tasa muestra su % de TQC debajo.
+    Modal más ancho (980 px) con scroll.
+  - Lista de Plataformas: Plataforma (nombre para mostrar + "en el input: …" + "suma en:
+    grupo" solo si es distinto) · Lógica (familia) · Tasa estándar (30′ 1.5 · 60′ 1.45…)
+    · Sub-tasas (EFFORT) (CEN 30′ 2 · 60′ 1.75…) · Configuración · Acciones. Sin Grupo
+    ni Estado.
+  - Categorías: Nombre · Duración · Tasa estándar · Sub-tasas (EFFORT) · Plataforma ·
+    Versiones…; filas ordenadas por plataforma y duración; filtros con nombre para mostrar.
+  - Prueba de pantalla nueva (LibraryView.test.jsx). Pruebas 82/82; build OK.
+
+PLATAFORMA = NIVEL PRINCIPAL, CATEGORÍAS = SUB-NIVEL (8 oct 2026)
+  Pedido del usuario: no amontonar tasas en una celda; la plataforma es lo principal y
+  sus categorías van en un sub-nivel.
+  - Se quitó la pestaña "📂 Categorías" (y su filtro y sub-pestañas).
+  - Librerías → Plataformas: una fila por plataforma (▶ | Plataforma | Lógica |
+    Categorías: "3 categorías" / "serie y película" / "tasa única" | EFFORT (códigos) |
+    Configuración | Acciones). Al pulsar ▶ (o el nombre) se despliega una tabla con sus
+    categorías: Categoría | Duración | Estándar | (Reproceso) | una columna por EFFORT |
+    Versiones | ✏️ 🗑, cada tasa con su % de TQC debajo. Botones "➕ Nueva categoría para
+    …" y "✏️ Editar tasas y EFFORT".
+  - Crear/editar/borrar categorías se hace desde su plataforma (el formulario de categoría
+    se abre igual que antes).
+  - "⚠ Falta: categorías" ahora despliega la plataforma en vez de cambiar de pestaña.
+  Pruebas 84/84 (4 de pantalla); build OK.
+  Ajuste (8 oct): "✏️ Editar categoría" mostraba solo la tasa estándar y "Editar
+  plataforma" mostraba estándar + sub-tasas. Ahora Editar categoría muestra una fila
+  Estándar · (Reproceso) · una columna por EFFORT de su plataforma, y guarda las
+  sub-tasas en la plataforma (misma fuente que Editar plataforma → siempre coinciden).
+  Formulario limpio: plataforma como texto fijo, Nombre · Duración · Color en una línea,
+  ayudas en "i". En Editar plataforma los nombres de categoría salen sin la duración
+  (ya está en su columna). Prueba nueva de consistencia; 85/85; build OK.
+  Ajuste (8 oct): panel "🔢 Números finales de versión" (Librerías → Versiones) era
+  confuso (9 filas, texto largo, cajas sin formato). Ahora: cerrado = una línea de
+  resumen ("1-4 → 30 min, 5-6 → 60 min, 9-11 → 120 min") + ✏️ Editar. Al editar, una
+  fila por duración con los números como etiquetas (× para quitar), un campo "nº" + ➕
+  para agregar a esa duración, y "Duración nueva … con el número …". Explicación en la
+  "i"; aviso solo si una duración no tiene categoría en ninguna plataforma.
+  Pruebas 86/86; build OK.
+  Terminología (8 oct): el número al final del nombre de la versión es la CANTIDAD DE
+  SEGMENTOS del material (aclarado por el usuario). Se renombró en toda la app:
+  "🔢 Segmentos → duración" (Librerías → Versiones), formulario de versión ("por sus 11
+  segmentos"), asistente, auditoría ("sus segmentos no están en la tabla (agrégalos en
+  Librerías → Versiones → Segmentos)"). Prueba renombrada a segmentos.test.js. 86/86.
+  Ajuste (8 oct): tasa estándar y sub-tasas separadas. CEN, MC, PR, 1P… son SUB-TASAS
+  DE ESFUERZO (columna EFFORT del input); una plataforma puede tener varias y todas
+  suman en la misma plataforma/categoría. En las 3 tablas de tasas (fila desplegada de
+  la plataforma, ✏️ Editar plataforma y ✏️ Editar categoría) el encabezado ahora es de
+  dos filas: "Tasa estándar" | (Reproceso) | "Sub-tasas de esfuerzo (EFFORT)" agrupando
+  una columna por código. Columna principal "EFFORT" → "Sub-tasas de esfuerzo"; botones
+  "➕ Sub-tasa" y "✏️ Editar tasas y sub-tasas". Pruebas 86/86; build OK.
+  Ajuste (8 oct): se quitó la columna "Sub-tasas de esfuerzo" de la lista de plataformas
+  (fila cerrada). Las sub-tasas se ven solo al desplegar la plataforma, en la tabla de
+  sus categorías. Pruebas 86/86; build OK.
+  Ajuste (8 oct): valores de tasa centrados (Tasa estándar, Reproceso y cada sub-tasa,
+  con su encabezado) en las 3 tablas: plataforma desplegada, ✏️ Editar plataforma y
+  ✏️ Editar categoría. Pruebas 86/86; build OK.
+  Cambio (8 oct): REPROSS pasa a la columna EFFORT (decisión del usuario).
+  - Reproceso = código EFFORT con la palabra REPROSS ("REPROSS", "2P REPROSS"); su tasa es
+    la sub-tasa de ese código. VERSION ya no decide: REPROSS solo en VERSION → cuenta como
+    nuevo + alerta "REPROSS en VERSION pero no en EFFORT"; REPROSS en las dos → reproceso sin
+    alerta; otro texto en VERSION → alerta "dato basura; no cambia el conteo, manda EFFORT".
+  - Se quitó la "Tasa de reproceso" de las categorías (tabla desplegada, ✏️ Editar
+    plataforma, ✏️ Editar categoría, asistente) y de "Configuración". En el respaldo 10-01
+    todas valían 1 (provisional), por eso no se migraron. El dato queda guardado sin uso.
+  - EFFORT puede venir con el nombre de la plataforma delante, como en el input real
+    (COMPLIANCE_Septiembre_2026 2: "FAST GLOBAL 2P REPROSS"): se quita el prefijo (nombre del
+    input o nombre para mostrar) → código "2P REPROSS". Vale igual para los códigos de la
+    librería ("FAST GLOBAL 1P" = "1P"). Antes esas 173 filas iban a la Auditoría.
+  - Validación COMPLIANCE_Septiembre_2026 2 (838 filas) con el respaldo 10-01 + códigos TQC
+    (tasa 1 provisional): 572 contadas; FAST GLOBAL 173 = 49 nuevo 30 min + 117 R 30 min +
+    7 películas. Auditoría: GSN FAST CHANNEL no registrada (en la librería está "GSN FAST
+    CHANEL"), FAST LATAM / US NETS / ENTREGAS DBB no registradas, QC DATABASE 42 y TV
+    MASTERING 41 sin DURATION, GREAT FAST fila 289 DURATION 2004, filas 834-839 con EDITOR
+    "NO"/"SI"/vacío. Alerta: VERSION "Viz Media" (49, filas 691-739).
+  Pruebas 93/93 (7 nuevas); build OK.
+  Ajuste (8 oct): Reporte Plataformas con reproceso → fila "GRAN TOTAL" (nuevo + reproceso)
+  debajo de TOTAL NEW y REPROSS en la hoja de la plataforma del Excel; la celda de cada
+  categoría unida con su "R" lleva la suma. En pantalla, chip "GRAN TOTAL" junto a
+  TOTAL NEW / REPROSS. Ej. GSN FAST CHANNEL (COMPLIANCE_Octubre): 14 + 5 = 19, 570 min.
+  Pruebas 93/93; build OK.

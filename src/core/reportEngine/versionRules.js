@@ -2,9 +2,10 @@
  * versionRules.js
  * Reglas de los nombres de versión de las plataformas con versión (LATAM, VOD, OFF AIR...).
  *
- * El número final del nombre ("LAT_ORI_HD 3", "BRA_SUB_HD 11") está atado a una duración.
+ * El número al final del nombre ("LAT_ORI_HD 3", "BRA_SUB_HD 11") es la cantidad de SEGMENTOS del
+ * material, y cada cantidad de segmentos está atada a una duración.
  * Esa relación es una TABLA, un número por fila, que se edita en Librerías → Versiones →
- * "Números finales de versión" (libraryStore.suffixRules): [{ id, number, duration }].
+ * "Segmentos" (libraryStore.suffixRules): [{ id, number = segmentos, duration }].
  *
  * Para qué se usa:
  *  - Al registrar una versión: da la duración y solo deja elegir categorías de esa duración.
@@ -97,10 +98,10 @@ export function describeSuffixRules(rules = DEFAULT_SUFFIX_RULES) {
 export function suffixRuleProblem(rule, rules = []) {
   const number = Number(rule.number);
   const duration = Number(rule.duration);
-  if (!Number.isInteger(number) || number < 1) return 'El número final debe ser un entero desde 1.';
+  if (!Number.isInteger(number) || number < 1) return 'La cantidad de segmentos debe ser un entero desde 1.';
   if (!Number.isInteger(duration) || duration < 1) return 'La duración debe ser un número de minutos mayor que 0.';
   const taken = normalizeSuffixRules(rules).find((r) => r.number === number);
-  if (taken) return `El número ${number} ya está en la tabla (${taken.duration} min).`;
+  if (taken) return `${number} segmentos ya están en la tabla (${taken.duration} min).`;
   return null;
 }
 

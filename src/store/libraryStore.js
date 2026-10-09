@@ -43,7 +43,7 @@ const libraryStore = create(
         versions: [], // [{id, name, categoryId, platformId, duration}]
         columnMappings: [], // [{id, fileName, mapping: {editor: 'col1', date: 'col2'...}}]
         editors: [], // [{id, name}] — nombre correcto "Apellido Nombre" (tal cual debe venir en el input)
-        // Números finales de versión → duración, un número por fila: [{id, number, duration}]
+        // Segmentos (número al final del nombre de la versión) → duración: [{id, number, duration}]
         // (ver versionRules.js)
         suffixRules: DEFAULT_SUFFIX_RULES,
 
@@ -215,7 +215,7 @@ const libraryStore = create(
             // Respaldos anteriores al registro de editores no traen este campo:
             // en ese caso se conserva el registro actual en vez de borrarlo.
             editors: data.editors ?? get().editors,
-            // Respaldos anteriores a la tabla de números finales: se conserva la actual.
+            // Respaldos anteriores a la tabla de segmentos: se conserva la actual.
             suffixRules: data.suffixRules ? normalizeSuffixRules(data.suffixRules) : get().suffixRules,
           });
         },
@@ -239,7 +239,7 @@ const libraryStore = create(
         // v1: casillas de logica_sin_version convertidas una vez al formato actual.
         // Los datos guardados en el navegador antes de esto (versión 0) pasan por aquí.
         // v2: versiones con id repetido reciben un id nuevo (punto #10).
-        // v3: tabla de números finales en formato "un número por fila".
+        // v3: tabla de segmentos en formato "una cantidad por fila".
         version: 3,
         migrate: (persisted, fromVersion) => {
           let state = persisted || {};

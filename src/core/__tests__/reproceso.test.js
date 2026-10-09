@@ -1,12 +1,13 @@
 /**
  * Lógica por duración con categorías + reproceso (FAST GLOBAL).
+ * El reproceso lo marca la columna EFFORT (código con REPROSS), no VERSION.
  * Los números replican la tabla de ejemplo del usuario: Adair (307 series 30 + 15
  * películas = 11,010 min) y Cheo (182 + 29 R series 30, 8 + 34 R películas = 11,370 min).
  */
 import PlatformReportsEngine from '../reportEngine/PlatformReportsEngine';
 import { library, row } from '../__fixtures__/library';
 
-const fg = (duration, editor, version = '') => row({ platform: 'FAST GLOBAL', duration, editor, version });
+const fg = (duration, editor, effort = '', version = '') => row({ platform: 'FAST GLOBAL', duration, editor, effort, version });
 const times = (n, r) => Array.from({ length: n }, () => r);
 
 const rows = [
@@ -31,12 +32,12 @@ describe('FAST GLOBAL: categoría por DURATION y reproceso', () => {
     const keys = plt.categories.map((c) => String(c.category_key));
     expect(keys).toEqual(['30', 'R:30', '31', '32', 'R:32']); // "R" solo donde hay reproceso
   });
-  test('Reporte Editores: reproceso en columna aparte, con su propia tasa', () => {
+  test('Reporte Editores: reproceso en columna aparte, con la sub-tasa REPROSS', () => {
     const eff = PlatformReportsEngine.buildEffortReport(rep, library);
     expect(eff.effortGroups).toEqual(expect.arrayContaining(['COMPLIANCE', 'COMPLIANCE REPROSS']));
     const cheo = eff.editors.find((e) => e.editor === 'Guerrero Jose');
     expect(cheo.byGroup.COMPLIANCE).toBeCloseTo(182 * 0.5 + 8 * 2);            // tasa 1
-    expect(cheo.byGroup['COMPLIANCE REPROSS']).toBeCloseTo(29 * 0.5 + 34 * 2 * 0.5); // películas R: tasa 0.5
+    expect(cheo.byGroup['COMPLIANCE REPROSS']).toBeCloseTo(29 * 0.5 * 0.7 + 34 * 2 * 0.5); // REPROSS: series 0.7, películas 0.5
   });
   test('duración sin categoría registrada: no cuenta y queda en la auditoría', () => {
     const r = PlatformReportsEngine.buildReport([fg('45', 'Dominguez Adair')], null, null, library, 'all');
@@ -48,9 +49,21 @@ describe('FAST GLOBAL: categoría por DURATION y reproceso', () => {
     expect(r.platforms[0].hasReprocess).toBe(false);
     expect(r.platforms[0].categories.some((c) => c.isReprocess)).toBe(false);
   });
-  test('VERSION distinta de REPROSS: se cuenta como nuevo, con alerta', () => {
-    const r = PlatformReportsEngine.buildReport([fg('30', 'Dominguez Adair', 'OTRA')], null, null, library, 'all');
+  test('VERSION con otro texto: no cambia el conteo (manda EFFORT), con alerta', () => {
+    const r = PlatformReportsEngine.buildReport([fg('30', 'Dominguez Adair', '', 'Viz Media')], null, null, library, 'all');
     expect(r.platforms[0].totalByCategory['30'].count).toBe(1);
-    expect(r.audit.warnings[0]).toMatchObject({ motivo: 'VERSION no reconocida (dato basura; se contó como nuevo)' });
+    expect(r.audit.warnings[0]).toMatchObject({ motivo: 'VERSION no reconocida (dato basura; no cambia el conteo, manda EFFORT)' });
+  });
+  test('REPROSS en VERSION y en EFFORT (input de transición): reproceso, sin alerta', () => {
+    const r = PlatformReportsEngine.buildReport([fg('30', 'Dominguez Adair', 'REPROSS', 'REPROSS')], null, null, library, 'all');
+    expect(r.platforms[0].totalByCategory['R:30'].count).toBe(1);
+    expect(r.audit.warnings).toHaveLength(0);
+  });
+  test('REPROSS solo en VERSION: ya no marca reproceso; cuenta como nuevo, con alerta y su fila', () => {
+    const r = PlatformReportsEngine.buildReport([row({ platform: 'FAST GLOBAL', duration: '30', editor: 'Dominguez Adair', version: 'REPROSS', excelRow: 7 })], null, null, library, 'all');
+    expect(r.platforms[0].totalByCategory['30'].count).toBe(1);
+    expect(r.platforms[0].hasReprocess).toBe(false);
+    expect(r.audit.warnings[0]).toMatchObject({ rows: [7] });
+    expect(r.audit.warnings[0].motivo).toMatch(/REPROSS en VERSION pero no en EFFORT/);
   });
 });

@@ -41,7 +41,7 @@ function PlatformWizard({ onCancel, onComplete }) {
   const [stagedCategories, setStagedCategories] = useState([]); // [{tempKey, data:{name,duration,color,effortRate}}]
   const [stagedVersions, setStagedVersions] = useState([]); // [{tempCategoryKey, data:{name,duration}}]
 
-  const [catForm, setCatForm] = useState({ name: '', duration: '', color: '#667eea', effortRate: DEFAULT_RATE, reprocessRate: DEFAULT_RATE });
+  const [catForm, setCatForm] = useState({ name: '', duration: '', color: '#667eea', effortRate: DEFAULT_RATE });
   const [verForm, setVerForm] = useState({ name: '', duration: null, tempCategoryKey: '' });
 
   const needsCatVersions = platformData.logica === 'logica_de_versiones' || platformData.logica === 'iberia_especial';
@@ -97,8 +97,7 @@ function PlatformWizard({ onCancel, onComplete }) {
   // categorías con la misma duración.
   const catDurationTaken = isDurCat && catForm.duration
     && stagedCategories.some((c) => c.data.duration === parseInt(catForm.duration, 10));
-  const catFormValid = catForm.name.trim() && catForm.duration && isValidRate(catForm.effortRate)
-    && (!isDurCat || isValidRate(catForm.reprocessRate)) && !catDurationTaken;
+  const catFormValid = catForm.name.trim() && catForm.duration && isValidRate(catForm.effortRate) && !catDurationTaken;
 
   const addStagedCategory = () => {
     if (!catFormValid) return;
@@ -112,11 +111,10 @@ function PlatformWizard({ onCancel, onComplete }) {
           duration,
           color: catForm.color,
           effortRate: catForm.effortRate,
-          ...(isDurCat ? { reprocessRate: catForm.reprocessRate } : {}),
         },
       },
     ]);
-    setCatForm({ name: '', duration: '', color: '#667eea', effortRate: DEFAULT_RATE, reprocessRate: DEFAULT_RATE });
+    setCatForm({ name: '', duration: '', color: '#667eea', effortRate: DEFAULT_RATE });
   };
 
   const removeStagedCategory = (tempKey) => {
@@ -357,11 +355,6 @@ function PlatformWizard({ onCancel, onComplete }) {
                 <input {...RATE_INPUT_PROPS} placeholder="Tasa" title="Tasa de esfuerzo (1 = 100%)" value={catForm.effortRate ?? ''}
                   onChange={(e) => setCatForm({ ...catForm, effortRate: rateFromInput(e.target.value) })}
                   style={{ ...inputStyle, width: '80px' }} />
-                {isDurCat && (
-                  <input {...RATE_INPUT_PROPS} placeholder="Tasa R" title="Tasa de esfuerzo del reproceso (1 = 100%)" value={catForm.reprocessRate ?? ''}
-                    onChange={(e) => setCatForm({ ...catForm, reprocessRate: rateFromInput(e.target.value) })}
-                    style={{ ...inputStyle, width: '80px', background: '#fffbeb' }} />
-                )}
                 <button className="btn btn-secondary" onClick={addStagedCategory} disabled={!catFormValid}>
                   ➕
                 </button>
@@ -369,7 +362,8 @@ function PlatformWizard({ onCancel, onComplete }) {
               {isDurCat && (
                 <small style={{ color: '#64748b', fontSize: '0.78rem' }}>
                   La columna DURATION del input elige la categoría (ej. 30 → serie 30, 120 → película).
-                  Nombre · minutos · color · tasa · tasa de reproceso (filas con REPROSS en VERSION).
+                  Nombre · minutos · color · tasa. El reproceso (EFFORT con REPROSS) es una sub-tasa: se agrega
+                  después en ✏️ Editar tasas y sub-tasas.
                 </small>
               )}
               {catDurationTaken && (
@@ -387,7 +381,7 @@ function PlatformWizard({ onCancel, onComplete }) {
                   {stagedCategories.map((c) => (
                     <li key={c.tempKey} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: c.data.color, display: 'inline-block' }} />
-                      {c.data.name} — {c.data.duration}min · tasa {c.data.effortRate}{isDurCat ? ` · tasa R ${c.data.reprocessRate}` : ''}
+                      {c.data.name} — {c.data.duration}min · tasa {c.data.effortRate}
                       <button onClick={() => removeStagedCategory(c.tempKey)} style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
                     </li>
                   ))}
@@ -418,7 +412,7 @@ function PlatformWizard({ onCancel, onComplete }) {
               </div>
               {verSuffixCheck.invalidSuffix !== null && (
                 <p style={{ color: '#b91c1c', fontSize: '0.8rem', marginTop: '0.4rem' }}>
-                  🚫 El número final {verSuffixCheck.invalidSuffix} no está en la tabla ({describeSuffixRules(suffixRules)}). Agrégalo primero en Librerías → Versiones → "Números finales de versión".
+                  🚫 El nombre indica {verSuffixCheck.invalidSuffix} segmentos y esa cantidad no está en la tabla ({describeSuffixRules(suffixRules)}). Agrégala primero en Librerías → Versiones → "Segmentos".
                 </p>
               )}
               {versionCategoryMismatch && (

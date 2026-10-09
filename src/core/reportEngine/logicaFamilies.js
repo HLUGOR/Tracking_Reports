@@ -15,7 +15,7 @@ export const LOGICA_FAMILIES = [
       {
         value: 'logica_de_versiones',
         label: 'logica_de_versiones',
-        desc: 'Busca la VERSION en la librería. Si no está, estima la duración por el número final (1-4 → 30, 5-6 → 60, 9-10 → 120) y lo avisa en Auditoría. Ej.: LATAM, OFF AIR, VOD.',
+        desc: 'Busca la VERSION en la librería. Si no está registrada, no se cuenta y la Auditoría avisa que hay que crearla. Ej.: LATAM, OFF AIR, VOD.',
       },
       {
         value: 'iberia_especial',
@@ -51,7 +51,7 @@ export const LOGICA_FAMILIES = [
       {
         value: 'logica_duracion_categorias',
         label: 'logica_duracion_categorias',
-        desc: 'DURATION elige la categoría de la librería con esa duración (ej. 30 → serie 30, 120 → película); cada categoría tiene su tasa. Si VERSION dice REPROSS la fila es reproceso: va en su columna R, con su propia tasa. Ej.: FAST GLOBAL.',
+        desc: 'DURATION elige la categoría de la librería con esa duración (ej. 30 → serie 30, 120 → película); cada categoría tiene su tasa. Si EFFORT trae un código con REPROSS (REPROSS, 2P REPROSS) la fila es reproceso: va en su columna R, con la sub-tasa de ese código. Ej.: FAST GLOBAL.',
       },
       {
         value: 'logica_bp_i',

@@ -16,5 +16,15 @@ export const isValidRate = (v) => v !== '' && v !== null && v !== undefined && N
 /** Propiedades comunes de los <input> de tasa. */
 export const RATE_INPUT_PROPS = { type: 'number', step: '0.01', min: '0.01' };
 
+/**
+ * Tasa → % de esfuerzo como lo escribe TQC: 1.5 → "+50%", 0.12 → "−88%", 1 → "0%".
+ * (tasa = 1 + %)
+ */
+export const rateAsEffortPct = (v) => {
+  if (!isValidRate(v)) return '';
+  const pct = Math.round((Number(v) - 1) * 1000) / 10;
+  return pct > 0 ? `+${pct}%` : pct < 0 ? `−${Math.abs(pct)}%` : '0%';
+};
+
 /** Valor del <input> → número o '' (vacío se conserva para que el bloqueo lo vea). */
 export const rateFromInput = (value) => (value === '' ? '' : parseFloat(value));
