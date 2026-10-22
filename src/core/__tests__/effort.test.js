@@ -25,7 +25,7 @@ describe('EFFORT: sub-tasas', () => {
     expect(eff.editors[0].byGroup.LATAM).toBeCloseTo(0.5 * 1.75 + 0.5 * 2);
   });
   test('casillas (SONY ONE MC) y tasa única (GSN VOD MC)', () => {
-    expect(evalRow(row({ platform: 'SONY ONE', season: '2', effort: 'MC' }))).toEqual({ minutes: 45, hours: 0.75 * 0.16 });
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '60', effort: 'MC' }))).toEqual({ minutes: 60, hours: 0.2 });
     expect(evalRow(row({ platform: 'GSN VOD', duration: '30', effort: 'MC' })).hours).toBeCloseTo(0.5 * 0.12);
   });
   test('código no configurado en la plataforma: no cuenta, Auditoría con su fila', () => {
@@ -74,5 +74,28 @@ describe('EFFORT con el nombre de la plataforma delante (como viene en el input 
     const rep = build([row({ platform: 'FAST GLOBAL', duration: '30', effort: 'LATAM CEN', excelRow: 4 })]);
     expect(rep.platforms).toHaveLength(0);
     expect(rep.audit.discardedByReason[0]).toMatchObject({ values: ['LATAM CEN'], rows: [4] });
+  });
+});
+
+describe('Mayúsculas y minúsculas no cuentan; sin equivalencias de código', () => {
+  // Como en la librería real: la sub-tasa de reproceso de FAST GLOBAL se llama "1P REPROSS"
+  const lib = { ...library, platforms: library.platforms.map((p) => (p.name === 'FAST GLOBAL'
+    ? { ...p, effortRates: p.effortRates.map((e) => (e.code === 'REPROSS' ? { ...e, code: '1P REPROSS' } : e)) } : p)) };
+  const build2 = (rows) => PlatformReportsEngine.buildReport(rows, null, null, lib, 'all');
+  test('"1P REPROSS" en cualquier mayúscula/minúscula (y con el nombre de la plataforma) → columna R', () => {
+    const rep = build2([
+      row({ platform: 'FAST GLOBAL', duration: '30', effort: '1P REPROSS' }),
+      row({ platform: 'FAST GLOBAL', duration: '30', effort: '1p Repross' }),
+      row({ platform: 'fast global', duration: '30', effort: 'fast global 1p repross' }),
+    ]);
+    expect(rep.platforms[0].totalByCategory['R:30'].count).toBe(3);
+    const eff = PlatformReportsEngine.buildEffortReport(rep, lib);
+    expect(eff.editors[0].byGroup['COMPLIANCE REPROSS']).toBeCloseTo(3 * 0.5 * 0.7);
+  });
+  test('un código que no coincide ("REPROSS" sin 1P) no se cuenta: Auditoría con su fila', () => {
+    const rep = build2([row({ platform: 'FAST GLOBAL', duration: '30', effort: 'REPROSS', excelRow: 12 })]);
+    expect(rep.platforms).toHaveLength(0);
+    expect(rep.audit.discardedByReason[0]).toMatchObject({ values: ['REPROSS'], rows: [12] });
+    expect(rep.audit.discardedByReason[0].motivo).toMatch(/EFFORT no configurado/);
   });
 });

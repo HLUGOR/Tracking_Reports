@@ -95,3 +95,87 @@ test('segmentos: resumen en una línea; al editar, agrupados por duración', () 
   fireEvent.click(within(screen.getByText('120 min').parentElement).getByTitle('Quitar 11 segmentos'));
   expect(libraryStore.getState().suffixRules.some((r) => r.number === 11)).toBe(false);
 });
+
+test('editar plataforma existente: agregar una categoría nueva desde el editor', () => {
+  render(<LibraryView />);
+  const latamRow = screen.getByText('LATAM & Brasil Networks').closest('tr');
+  fireEvent.click(within(latamRow).getByTitle('Editar plataforma y sus tasas'));
+  const before = libraryStore.getState().categories.filter((c) => c.platformId === 1).length;
+  fireEvent.change(screen.getByPlaceholderText('Nombre (ej. serie, pelicula)'), { target: { value: 'especial' } });
+  fireEvent.change(screen.getByPlaceholderText('min'), { target: { value: '90' } });
+  expect(screen.getByText('especial (90 min)')).toBeInTheDocument(); // vista previa del nombre
+  fireEvent.click(screen.getByText('➕ Agregar'));
+  const cats = libraryStore.getState().categories.filter((c) => c.platformId === 1);
+  expect(cats).toHaveLength(before + 1);
+  expect(cats.find((c) => c.name === 'especial (90 min)')).toMatchObject({ duration: 90, effortRate: 1 });
+  // aparece como fila nueva en la tabla de tasas del editor
+  const table = screen.getByText('➕ Sub-tasa').closest('table');
+  expect(within(table).getByText('especial')).toBeInTheDocument();
+});
+
+describe('Versiones: una sola librería para todas las plataformas con versiones', () => {
+  const openVersions = () => {
+    render(<LibraryView />);
+    fireEvent.click(screen.getByText(/Versiones \(/));
+  };
+
+  test('una lista única, sin pestañas ni columnas de plataforma o lógica', () => {
+    openVersions();
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(screen.queryByText(/no necesitan versiones/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Lógica')).not.toBeInTheDocument();
+    expect(screen.queryByText('Plataforma')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Nombre', 'Categoría', 'Duración', 'Acciones']);
+  });
+
+  test('Nueva Versión no pregunta la plataforma: nombre y categoría con botones', () => {
+    openVersions();
+    fireEvent.click(screen.getByText('➕ Nueva Versión'));
+    expect(screen.getByText('Nueva versión')).toBeInTheDocument();
+    expect(screen.queryByText('Selecciona una plataforma')).not.toBeInTheDocument();
+    expect(screen.getByText('1. Nombre de la versión')).toBeInTheDocument();
+    expect(screen.getByText(/2\. Categoría/)).toBeInTheDocument();
+    expect(screen.getByText(/➕ Crear categoría/)).toBeInTheDocument();
+  });
+
+  test('al elegir categoría se guarda con la plataforma de esa categoría', () => {
+    openVersions();
+    const before = libraryStore.getState().versions.length;
+    fireEvent.click(screen.getByText('➕ Nueva Versión'));
+    fireEvent.change(screen.getByPlaceholderText('Ej: BRA_SAP_CC_SQZ_HD 5'), { target: { value: 'LAT_NUEVA_HD 3' } });
+    const pill = screen.getAllByRole('button', { pressed: false }).find((b) => /30 min/.test(b.textContent) && /serie/i.test(b.textContent));
+    fireEvent.click(pill);
+    fireEvent.click(screen.getByText('Guardar'));
+    const created = libraryStore.getState().versions.find((v) => v.name === 'LAT_NUEVA_HD 3');
+    expect(libraryStore.getState().versions.length).toBe(before + 1);
+    expect(created.platformId).toBeTruthy();
+    expect(created.duration).toBe(30);
+  });
+});
+
+test('versión con segmentos que no están en la tabla: se agregan desde el mismo aviso', () => {
+  window.confirm = jest.fn(() => true);
+  render(<LibraryView />);
+  fireEvent.click(screen.getByText(/Versiones \(/));
+  fireEvent.click(screen.getByText('➕ Nueva Versión'));
+  fireEvent.change(screen.getByPlaceholderText('Ej: BRA_SAP_CC_SQZ_HD 5'), { target: { value: 'BRA_SUB_HD 12' } });
+  expect(screen.getByText(/no está en la tabla/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText('➕ 120 min'));
+  expect(window.confirm).toHaveBeenCalled();
+  expect(libraryStore.getState().suffixRules.some((r) => r.number === 12 && r.duration === 120)).toBe(true);
+  expect(screen.queryByText(/no está en la tabla/)).not.toBeInTheDocument();
+  expect(screen.getByText(/12 segmentos/)).toBeInTheDocument();
+});
+
+test('buscar plataforma filtra la lista por nombre o grupo, sin mayúsculas', () => {
+  render(<LibraryView />);
+  expect(screen.getByText('SONY ONE')).toBeInTheDocument();
+  const box = screen.getByPlaceholderText(/Buscar plataforma/);
+  fireEvent.change(box, { target: { value: 'sony' } });
+  expect(screen.getByText('SONY ONE')).toBeInTheDocument();
+  expect(screen.queryByText('LATAM & Brasil Networks')).not.toBeInTheDocument();
+  fireEvent.change(box, { target: { value: 'zzz' } });
+  expect(screen.getByText(/No se encontró ninguna plataforma/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText('✕'));
+  expect(screen.getByText('LATAM & Brasil Networks')).toBeInTheDocument();
+});

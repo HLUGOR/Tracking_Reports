@@ -15,6 +15,7 @@
 import React, { useState, useMemo } from 'react';
 import libraryStore from '../../store/libraryStore';
 import { checkVersionSuffix, describeSuffixRules } from '../../core/reportEngine/versionRules';
+import { DURACION_BANDS } from '../../core/reportEngine/VersionMatcher';
 import { LOGICA_FAMILIES } from '../../core/reportEngine/logicaFamilies';
 import { DEFAULT_RATE, isValidRate, RATE_INPUT_PROPS, rateFromInput } from '../../core/utils/rates';
 
@@ -46,10 +47,14 @@ function PlatformWizard({ onCancel, onComplete }) {
 
   const needsCatVersions = platformData.logica === 'logica_de_versiones' || platformData.logica === 'iberia_especial';
   // Por duración con categorías (ej. FAST GLOBAL): categorías por duración, sin versiones,
-  // y cada categoría con su tasa de reproceso.
+  // (el reproceso es una sub-tasa EFFORT).
   const isDurCat = platformData.logica === 'logica_duracion_categorias';
   const needsCategories = needsCatVersions || isDurCat;
-  const needsSinVersionCats = platformData.logica === 'logica_sin_version';
+  // Casillas propias (sin categorías ni versiones): sin_version = serie / película por SEASON;
+  // duracion_rangos = 30 / 60 / 120 min por rango de DURATION.
+  const isRangos = platformData.logica === 'logica_duracion_rangos';
+  const needsSinVersionCats = platformData.logica === 'logica_sin_version' || isRangos;
+  const casillaBands = isRangos ? DURACION_BANDS : [{ minutes: null }, { minutes: null }];
   const needsPlatformRate = ['logica_comerciales', 'logica_bp_i', 'logica_por_duracion', 'logica_youtube'].includes(platformData.logica);
 
   // Pasos visibles según la lógica elegida (el 4 solo aplica a logica_de_versiones/iberia_especial)
@@ -63,18 +68,25 @@ function PlatformWizard({ onCancel, onComplete }) {
   const goBack = () => setStepIdx((i) => Math.max(i - 1, 0));
 
   // ── Validaciones ──────────────────────────────────────────────────────────
-  const step1Valid = platformData.name.trim() !== '' && platformData.logica !== '';
+  // Nombre repetido: mayúsculas y minúsculas no cuentan ("Fast Global" = "FAST GLOBAL")
+  const nameKey = (n) => String(n || '').trim().replace(/\s+/g, ' ').toUpperCase();
+  const nameTaken = platformData.name.trim() !== '' && existingPlatforms.some((p) => nameKey(p.name) === nameKey(platformData.name));
+  const step1Valid = platformData.name.trim() !== '' && platformData.logica !== '' && !nameTaken;
   const sinVersionCatsValid =
     !needsSinVersionCats ||
-    (platformData.categorias.length >= 2 &&
-      platformData.categorias.every((c) => (c.key || '').trim() !== '' && Number(c.duration) > 0 && isValidRate(c.effortRate)));
+    casillaBands.every((band, i) => {
+      const c = platformData.categorias[i];
+      return c && (c.key || '').trim() !== '' && (isRangos || Number(c.duration) > 0) && isValidRate(c.effortRate);
+    });
   // Tasa de plataforma (lógicas por duración y por conteo): obligatoria
   const platformRateValid = !needsPlatformRate || isValidRate(platformData.platformEffortRate);
 
   const missing = [];
   if (!step1Valid) missing.push('Nombre y tipo de lógica (paso 1)');
   if (needsSinVersionCats && !sinVersionCatsValid) {
-    missing.push('Las 2 categorías de logica_sin_version deben tener nombre, duración y tasa (paso 3)');
+    missing.push(isRangos
+      ? 'Las 3 categorías de logica_duracion_rangos (30, 60 y 120 min) deben tener nombre y tasa estándar (paso 3); las sub-tasas PR / MC se cargan después en Editar'
+      : 'Las 2 categorías de logica_sin_version deben tener nombre, duración y tasa (paso 3)');
   }
   if (!platformRateValid) missing.push('Tasa de Esfuerzo de la plataforma (paso 3)');
   if (needsCategories && stagedCategories.length === 0) missing.push('Al menos 1 categoría (paso 4)');
@@ -161,7 +173,7 @@ function PlatformWizard({ onCancel, onComplete }) {
       logica: platformData.logica,
       effortGroup: platformData.effortGroup,
       platformEffortRate: needsPlatformRate ? platformData.platformEffortRate : null,
-      categorias: needsSinVersionCats ? platformData.categorias : [],
+      categorias: needsSinVersionCats ? platformData.categorias.slice(0, casillaBands.length) : [],
     };
     libraryStore.getState().commitPlatformSetup({
       platform: normalizedPlatform,
@@ -199,6 +211,9 @@ function PlatformWizard({ onCancel, onComplete }) {
                 style={inputStyle}
                 autoFocus
               />
+              {nameTaken && (
+                <small style={{ color: '#b91c1c', fontSize: '0.78rem' }}>Ya existe una plataforma con ese nombre (mayúsculas y minúsculas no cuentan).</small>
+              )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={labelStyle}>Tipo de lógica</label>
@@ -284,32 +299,36 @@ function PlatformWizard({ onCancel, onComplete }) {
 
             {needsSinVersionCats && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <label style={labelStyle}>📂 Categorías (serie / película) — obligatorias</label>
-                {[0, 1].map((idx) => {
-                  const cat = platformData.categorias[idx] || { key: '', duration: '', effortRate: DEFAULT_RATE };
+                <label style={labelStyle}>{isRangos ? '📂 Categorías (30 / 60 / 120 min, las elige DURATION) — obligatorias' : '📂 Categorías (serie / película) — obligatorias'}</label>
+                {casillaBands.map((band, idx) => {
+                  const cat = platformData.categorias[idx] || { key: '', duration: band.minutes ?? '', effortRate: DEFAULT_RATE };
                   return (
                     <div key={idx} style={{ display: 'flex', gap: '0.5rem' }}>
                       <input
                         type="text"
-                        placeholder={idx === 0 ? 'Ej: serie_45min' : 'Ej: pelicula_120min'}
+                        placeholder={isRangos ? `Ej: cat_${band.minutes}min` : (idx === 0 ? 'Ej: serie_45min' : 'Ej: pelicula_120min')}
                         value={cat.key}
                         onChange={(e) => {
                           const cats = [...platformData.categorias];
-                          cats[idx] = { ...cat, key: e.target.value };
+                          cats[idx] = { ...cat, ...(isRangos ? { duration: band.minutes } : {}), key: e.target.value };
                           setPlatformData({ ...platformData, categorias: cats });
                         }}
                         style={{ ...inputStyle, flex: 1 }}
                       />
-                      <input
-                        type="number" min="0" placeholder="min"
-                        value={cat.duration}
-                        onChange={(e) => {
-                          const cats = [...platformData.categorias];
-                          cats[idx] = { ...cat, duration: e.target.value ? parseInt(e.target.value, 10) : '' };
-                          setPlatformData({ ...platformData, categorias: cats });
-                        }}
-                        style={{ ...inputStyle, width: '90px' }}
-                      />
+                      {isRangos ? (
+                        <span style={{ ...inputStyle, width: '90px', display: 'flex', alignItems: 'center' }}>{band.minutes} min</span>
+                      ) : (
+                        <input
+                          type="number" min="0" placeholder="min"
+                          value={cat.duration}
+                          onChange={(e) => {
+                            const cats = [...platformData.categorias];
+                            cats[idx] = { ...cat, duration: e.target.value ? parseInt(e.target.value, 10) : '' };
+                            setPlatformData({ ...platformData, categorias: cats });
+                          }}
+                          style={{ ...inputStyle, width: '90px' }}
+                        />
+                      )}
                       <input
                         {...RATE_INPUT_PROPS}
                         title="Tasa de esfuerzo (1 = 100%)"
@@ -317,7 +336,7 @@ function PlatformWizard({ onCancel, onComplete }) {
                         value={cat.effortRate ?? ''}
                         onChange={(e) => {
                           const cats = [...platformData.categorias];
-                          cats[idx] = { ...cat, effortRate: rateFromInput(e.target.value) };
+                          cats[idx] = { ...cat, ...(isRangos ? { duration: band.minutes } : {}), effortRate: rateFromInput(e.target.value) };
                           setPlatformData({ ...platformData, categorias: cats });
                         }}
                         style={{ ...inputStyle, width: '80px' }}
@@ -325,9 +344,9 @@ function PlatformWizard({ onCancel, onComplete }) {
                     </div>
                   );
                 })}
-                <small style={{ color: '#64748b', fontSize: '0.78rem' }}>Nombre · minutos · tasa (1 = 100%, 1.5 = 150%, 0.25 = 25%)</small>
+                <small style={{ color: '#64748b', fontSize: '0.78rem' }}>Nombre · minutos · tasa estándar (1 = 100%, 1.5 = 150%, 0.25 = 25%)</small>
                 {!sinVersionCatsValid && (
-                  <small style={{ color: '#b91c1c' }}>Completa nombre, duración y tasa de ambas categorías para continuar.</small>
+                  <small style={{ color: '#b91c1c' }}>{isRangos ? 'Completa nombre y tasa estándar de las 3 categorías para continuar. Las sub-tasas PR / MC se cargan después, en Editar.' : 'Completa nombre, duración y tasa de ambas categorías para continuar.'}</small>
                 )}
               </div>
             )}

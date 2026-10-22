@@ -11,12 +11,24 @@ export const library = {
     },
     { id: 2, name: 'IBERIA', logica: 'iberia_especial', effortGroup: 'IBERIA', categorias: [] },
     {
-      id: 3, name: 'SONY ONE', logica: 'logica_sin_version', effortGroup: 'DIGITAL',
+      id: 3, name: 'SONY ONE', logica: 'logica_duracion_rangos', effortGroup: 'DIGITAL',
+      categorias: [
+        { key: 'cat 30 (30 min)', duration: 30, effortRate: 1 },
+        { key: 'cat 60 (60 min)', duration: 60, effortRate: 1.5 },
+        { key: 'cat 120 (120 min)', duration: 120, effortRate: 3 },
+      ],
+      // tasa = 1 + % de esfuerzo de TQC: PR −90 / −84 / −83 %, MC −80 % en las tres
+      effortRates: [
+        { code: 'PR', rates: { 'cat 30 (30 min)': 0.1, 'cat 60 (60 min)': 0.16, 'cat 120 (120 min)': 0.17 } },
+        { code: 'MC', rates: { 'cat 30 (30 min)': 0.2, 'cat 60 (60 min)': 0.2, 'cat 120 (120 min)': 0.2 } },
+      ],
+    },
+    {
+      id: 13, name: 'AMAZON', logica: 'logica_sin_version', effortGroup: 'DIGITAL',
       categorias: [
         { key: 'serie (45 min)', duration: 45, effortRate: 1.5 },
         { key: 'pelicula (120 min)', duration: 120, effortRate: 3 },
       ],
-      effortRates: [{ code: 'MC', rates: { 'serie (45 min)': 0.16, 'pelicula (120 min)': 0.17 } }],
     },
     {
       id: 4, name: 'GSN VOD', logica: 'logica_por_duracion', effortGroup: 'COMPLIANCE', platformEffortRate: 1.5, categorias: [],

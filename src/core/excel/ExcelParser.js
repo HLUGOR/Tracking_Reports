@@ -47,20 +47,24 @@ class ExcelParser {
           // Headers (primera fila)
           const headers = rows[headerRow] || [];
 
+          // Encabezados sin distinguir mayúsculas: una columna "Duration" o "effort" también
+          // se lee como DURATION / EFFORT (si no hay otra columna escrita así).
+          const keys = headers.map((header) => (trimValues && typeof header === 'string' ? header.trim() : header));
+          const upperKeys = keys.map((key) => (typeof key === 'string' && key.toUpperCase() !== key
+            && !keys.includes(key.toUpperCase()) ? key.toUpperCase() : null));
+
           // Datos (desde headerRow+1 en adelante)
           // __row = número de fila en el Excel (encabezado en la fila headerRow + 1), para
           // que la auditoría diga exactamente qué fila del input hay que corregir.
           const dataRows = rows.slice(headerRow + 1).map((row, i) => {
             const obj = { __row: headerRow + 2 + i };
-            headers.forEach((header, idx) => {
-              const key = trimValues && typeof header === 'string' 
-                ? header.trim() 
-                : header;
+            keys.forEach((key, idx) => {
               const value = row[idx];
               const text = trimValues && typeof value === 'string' ? value.trim() : value;
               // La macro que arma el input escribe "NAN" / "nan" en las celdas vacías: se
               // trata como celda vacía (DURATION "NAN" = sin DURATION, EDITOR "nan" = sin EDITOR).
               obj[key] = typeof text === 'string' && /^nan$/i.test(text.trim()) ? '' : text;
+              if (upperKeys[idx]) obj[upperKeys[idx]] = obj[key];
             });
             return obj;
           });

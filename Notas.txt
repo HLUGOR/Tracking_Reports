@@ -1246,3 +1246,25 @@ PLATAFORMA = NIVEL PRINCIPAL, CATEGORÍAS = SUB-NIVEL (8 oct 2026)
   categoría unida con su "R" lleva la suma. En pantalla, chip "GRAN TOTAL" junto a
   TOTAL NEW / REPROSS. Ej. GSN FAST CHANNEL (COMPLIANCE_Octubre): 14 + 5 = 19, 570 min.
   Pruebas 93/93; build OK.
+  Cambio (9 oct): el sistema no distingue mayúsculas/minúsculas.
+  - "1P REPROSS" es el reproceso de FAST GLOBAL: la sub-tasa se llama "1P REPROSS" en la
+    librería (la renombra el usuario). Sin equivalencias de código: lo que no coincide (ej.
+    "REPROSS" solo) va a la Auditoría ("EFFORT no configurado"). Se descartó dar varios
+    nombres a una sub-tasa con "/".
+  - Encabezados del input sin distinguir mayúsculas: "Duration", "effort", "Platform"...
+    también se leen como DURATION / EFFORT / PLATFORM (ExcelParser).
+  - Librería: no deja crear una plataforma ("Fast Global" = "FAST GLOBAL", asistente y
+    ✏️ Editar) ni una versión en la misma plataforma que ya exista con otras mayúsculas.
+  - Ya eran insensibles: valores de PLATFORM, EDITOR, VERSION, EFFORT y REPROSS en VERSION.
+  Pruebas 96/96; build OK.
+  Ajuste (14 oct): ✏️ Editar plataforma (plataformas con categorías: con versión, IBERIA y
+  por duración) ahora trae "➕ Nueva categoría" debajo de la tabla de tasas: nombre sin la
+  duración + minutos + tasa estándar. Se crea al instante (no espera a Guardar) y aparece
+  como fila nueva para llenar sus sub-tasas. Por duración: no deja repetir la duración.
+  SONY ONE / AMAZON (sin versión) siguen con 2 casillas fijas (serie y película).
+  Pendiente de confirmar: opción por plataforma "Exige código EFFORT" (tasa estándar
+  deshabilitada; fila sin EFFORT → Auditoría) para VOD, OFF AIR, FAST GLOBAL, TV MASTERING
+  y QC DATABASE. Pruebas 97/97; build OK.
+  Pendiente SONY ONE (14 oct): TQC ajustará el input (SONY ONE hoy solo trae SEASON; DURATION y
+  EFFORT vacíos) y se cambiarán sus reglas (se esperan 3 categorías). Sus sub-tasas MC/PR
+  (120: .17/.2 · 60: .16/.2 · 30: .10/.2) quedan sin cargar hasta definirlo.

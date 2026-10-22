@@ -36,12 +36,57 @@ describe('Con versión (LATAM / BRAZIL / IBERIA)', () => {
   });
 });
 
-describe('Sin versión (SEASON)', () => {
+describe('Sin versión (SEASON) — AMAZON', () => {
   test('SEASON vacío → película 120 min × 3', () => {
-    expect(evalRow(row({ platform: 'SONY ONE', season: '' }))).toEqual({ minutes: 120, hours: 6 });
+    expect(evalRow(row({ platform: 'AMAZON', season: '' }))).toEqual({ minutes: 120, hours: 6 });
   });
-  test('SEASON con valor → serie 45 min × 1.5', () => {
-    expect(evalRow(row({ platform: 'SONY ONE', season: '2' }))).toEqual({ minutes: 45, hours: 0.75 * 1.5 });
+  test('SEASON con valor → serie 45 min × 1.5 (DURATION no interviene)', () => {
+    expect(evalRow(row({ platform: 'AMAZON', season: '2', duration: '30' }))).toEqual({ minutes: 45, hours: 0.75 * 1.5 });
+  });
+});
+
+describe('SONY ONE (DURATION por rangos; EFFORT PR / MC o tasa estándar)', () => {
+  test('10 a 30 → cuenta 30 min', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '10', effort: 'PR' }))).toEqual({ minutes: 30, hours: 0.5 * 0.1 });
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '30', effort: 'MC' }))).toEqual({ minutes: 30, hours: 0.5 * 0.2 });
+  });
+  test('40 a 60 → cuenta 60 min', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '40', effort: 'PR' })).minutes).toBe(60);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '60', effort: 'PR' })).minutes).toBe(60);
+  });
+  test('100 a 240 → cuenta 120 min', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '100', effort: 'PR' })).minutes).toBe(120);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '240', effort: 'PR' })).minutes).toBe(120);
+  });
+  test('sin EFFORT usa la tasa estándar de la casilla', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '20' }))).toEqual({ minutes: 30, hours: 0.5 * 1 });
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '45' }))).toEqual({ minutes: 60, hours: 1 * 1.5 });
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '120' }))).toEqual({ minutes: 120, hours: 2 * 3 });
+  });
+  test('PR: tasa por casilla (−90 / −84 / −83 %)', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '20', effort: 'PR' })).hours).toBeCloseTo(0.5 * 0.1);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '45', effort: 'PR' })).hours).toBeCloseTo(1 * 0.16);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '120', effort: 'PR' })).hours).toBeCloseTo(2 * 0.17);
+  });
+  test('MC: −80 % en las tres casillas', () => {
+    [['20', 0.5], ['45', 1], ['120', 2]].forEach(([d, h]) => {
+      expect(evalRow(row({ platform: 'SONY ONE', duration: d, effort: 'MC' })).hours).toBeCloseTo(h * 0.2);
+    });
+  });
+  test('EFFORT que no es PR ni MC: no cuenta, Auditoría', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '45', effort: 'XX' }))).toEqual({ minutes: 0, hours: 0 });
+  });
+  test('entre rangos se redondea a la banda más cercana y queda como alerta', () => {
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '36', effort: 'PR' })).minutes).toBe(60);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '34', effort: 'PR' })).minutes).toBe(30);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '75', effort: 'PR' })).minutes).toBe(60);
+    expect(evalRow(row({ platform: 'SONY ONE', duration: '90', effort: 'PR' })).minutes).toBe(120);
+    expect(build([row({ platform: 'SONY ONE', duration: '75', effort: 'PR' })]).audit.warnings[0]).toMatchObject({ motivo: 'DURATION entre rangos — se contó en la banda más cercana' });
+  });
+  test('vacío, 5 o 300 no se adivinan: no cuentan', () => {
+    ['', '5', '300'].forEach((d) => {
+      expect(evalRow(row({ platform: 'SONY ONE', duration: d, effort: 'PR' }))).toEqual({ minutes: 0, hours: 0 });
+    });
   });
 });
 
@@ -196,7 +241,7 @@ describe('Reporte Series = misma tasa que Editores', () => {
   test('las horas de una serie son la suma de las horas de sus filas en Editores', () => {
     const rows = [
       row({ platform: 'LATAM', version: 'LAT_ORI_HD 3', serie: 'Serie A', hn: '1' }),
-      row({ platform: 'SONY ONE', season: '1', serie: 'Serie A', hn: '2' }),
+      row({ platform: 'AMAZON', season: '1', serie: 'Serie A', hn: '2' }),
       row({ platform: 'GSN VOD', duration: '60', serie: 'Serie B', hn: '3' }),
     ];
     const series = SerieReportsEngine.buildReport(rows, null, null, 'all', library);

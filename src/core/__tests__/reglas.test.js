@@ -68,6 +68,25 @@ describe('Regla de SEASON (sin versión)', () => {
     const r = VersionMatcher.classifyBySeason('3', { categorias: [{ key: 'serie', duration: '' }, { key: 'p', duration: 120 }] });
     expect(r.registered).toBe(false);
   });
+});
+
+describe('Regla de DURATION por rangos (SONY ONE)', () => {
+  const cfg = { categorias: [{ key: 'a' }, { key: 'b' }, { key: 'c' }] };
+  const cls = (m) => VersionMatcher.classifyByDuration(m, cfg);
+  test('10-30 → 30, 40-60 → 60, 100-240 → 120', () => {
+    [[10, 30, 'a'], [30, 30, 'a'], [40, 60, 'b'], [60, 60, 'b'], [100, 120, 'c'], [240, 120, 'c']].forEach(([m, dur, key]) => {
+      expect(cls(m)).toMatchObject({ duration_minutes: dur, category_key: key, registered: true, rounded: false });
+    });
+  });
+  test('entre rangos: banda más cercana (empate → menor) y rounded', () => {
+    [[31, 30], [35, 30], [36, 60], [61, 60], [80, 60], [81, 120], [99, 120]].forEach(([m, dur]) => {
+      expect(cls(m)).toMatchObject({ duration_minutes: dur, rounded: true });
+    });
+  });
+  test('0, <10, >240 o sin casilla: no se adivina', () => {
+    [0, 5, 241].forEach((m) => expect(cls(m).registered).toBe(false));
+    expect(VersionMatcher.classifyByDuration(100, { categorias: [{ key: 'a' }] }).registered).toBe(false);
+  });
   test('un respaldo con el formato antiguo conserva la duración', () => {
     const p = normalizePlatformCasillas({
       name: 'SONY ONE', categorias: ['serie_45min', 'pelicula_120min'],

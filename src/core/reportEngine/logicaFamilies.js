@@ -33,7 +33,7 @@ export const LOGICA_FAMILIES = [
       {
         value: 'logica_sin_version',
         label: 'logica_sin_version',
-        desc: 'SEASON vacío o 0 → casilla película; SEASON con valor → casilla serie. Ej.: SONY ONE, AMAZON.',
+        desc: 'SEASON vacío o 0 → casilla película; SEASON con valor → casilla serie. Ej.: AMAZON.',
       },
     ],
   },
@@ -52,6 +52,11 @@ export const LOGICA_FAMILIES = [
         value: 'logica_duracion_categorias',
         label: 'logica_duracion_categorias',
         desc: 'DURATION elige la categoría de la librería con esa duración (ej. 30 → serie 30, 120 → película); cada categoría tiene su tasa. Si EFFORT trae un código con REPROSS (REPROSS, 2P REPROSS) la fila es reproceso: va en su columna R, con la sub-tasa de ese código. Ej.: FAST GLOBAL.',
+      },
+      {
+        value: 'logica_duracion_rangos',
+        label: 'logica_duracion_rangos',
+        desc: 'DURATION elige una de 3 casillas por rango: 10-30 min cuenta como 30, 40-60 como 60 y 100-240 como 120 (entre rangos: la más cercana). EFFORT (PR, MC…) trae su sub-tasa por casilla, como en LATAM. Ej.: SONY ONE.',
       },
       {
         value: 'logica_bp_i',

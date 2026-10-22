@@ -9,6 +9,7 @@
  *   - logica_de_versiones : busca VERSION en la librería → categoría + duración reales.
  *                           Si no está registrada NO se cuenta (no se estima nada).
  *   - logica_sin_version  : usa columna SEASON → serie (season != '0') o película (season = '0')
+ *   - logica_duracion_rangos : DURATION (col. L) por rangos: 10-30 → 30 min, 40-60 → 60 min, 100-240 → 120 min
  *   - iberia_especial     : igual que logica_de_versiones, pero sin fallback (si no está registrada, no cuenta)
  *   - logica_comerciales  : suma DURATION en timecode (HH:MM:SS), cuenta assets
  *   - logica_bp_i         : suma MINUTOS netos (números simples), cuenta assets
@@ -24,7 +25,7 @@
  *   EDITOR, VERSION, PLATFORM, SEASON, AIR_DATE, APPROVED_DATE, DURATION (comerciales), MINUTOS (bp&i)
  */
 
-import VersionMatcher from './VersionMatcher';
+import VersionMatcher, { DURACION_BANDS } from './VersionMatcher';
 import { checkVersionSuffix, DEFAULT_SUFFIX_RULES } from './versionRules';
 import { parseInputDate, approvedDateOf } from '../utils/dateUtils';
 import { buildEditorIndex, editorKey } from '../utils/editorRegistry';
@@ -64,6 +65,11 @@ export const platformEffortCode = (value, platform) => {
   }
   return code;
 };
+// Sub-tasa de la librería con ese código (sin distinguir mayúsculas). Sin equivalencias:
+// un código que no coincide no es de esa sub-tasa (la fila va a la Auditoría).
+export const findEffortEntry = (effortRates, code, platform) => (code
+  ? (effortRates || []).find((e) => platformEffortCode(e.code, platform) === code) || null
+  : null);
 // Reproceso: el código EFFORT lleva la palabra REPROSS ("REPROSS", "2P REPROSS").
 export const isReprocessEffort = (code) => effortCode(code).split(' ').includes('REPROSS');
 export const rowEffort = (row) => {
@@ -74,7 +80,7 @@ export const rowEffort = (row) => {
 // clave para las lógicas de tasa única. El reproceso usa la sub-tasa de su categoría base.
 export const PLATFORM_RATE_KEY = '__platform__';
 const effortRateFor = (effortRates, code, catKey, platform) => {
-  const entry = (effortRates || []).find((e) => platformEffortCode(e.code, platform) === code);
+  const entry = findEffortEntry(effortRates, code, platform);
   if (!entry) return null;
   const baseKey = String(catKey).startsWith('R:') ? String(catKey).slice(2) : String(catKey);
   const r = parseFloat(entry.rates?.[baseKey]);
@@ -271,7 +277,7 @@ class PlatformReportsEngine {
       //    que estar configurado en la plataforma (Librerías → Plataformas → ✏️ Editar) ──
       const effortRaw = rowEffort(row);
       const effort = platformEffortCode(effortRaw, cfg || { name: platform });
-      if (effort && !(cfg?.effortRates || []).some((e) => platformEffortCode(e.code, cfg) === effort)) {
+      if (effort && !findEffortEntry(cfg?.effortRates, effort, cfg)) {
         discard(row, platform, 'EFFORT no configurado en esta plataforma — agrégalo en Librerías → Plataformas → ✏️ Editar', effortRaw);
         return;
       }
@@ -289,6 +295,26 @@ class PlatformReportsEngine {
             ? 'categoría de película sin duración configurada'
             : 'categoría de serie sin duración configurada');
           return;
+        }
+      } else if (logica === 'logica_duracion_rangos') {
+        // Sin EFFORT cuenta con la tasa estándar de la casilla; con PR / MC, su sub-tasa.
+        // DURATION (columna L) elige la banda 30 / 60 / 120. Sin fallback: vacío, texto o
+        // fuera de 10-240 no se adivina — se descarta y queda visible en auditoría.
+        const durationRaw = String(row.duration || row.DURATION || '').trim();
+        const minutes = PlatformReportsEngine.parseMinutes(durationRaw);
+        if (minutes <= 0) {
+          discard(row, platform, PlatformReportsEngine.durationProblem(durationRaw), durationRaw);
+          return;
+        }
+        classified = VersionMatcher.classifyByDuration(minutes, cfg);
+        if (!classified.registered) {
+          discard(row, platform, minutes < DURACION_BANDS[0].from || minutes > DURACION_BANDS[DURACION_BANDS.length - 1].to
+            ? 'DURATION fuera de 10-240 min'
+            : 'falta la casilla de esta duración (se necesitan 30, 60 y 120 min)', durationRaw);
+          return;
+        }
+        if (classified.rounded) {
+          warn(row, platform, 'DURATION entre rangos — se contó en la banda más cercana', `${durationRaw} → ${classified.duration_minutes} min`);
         }
       } else if (logica === 'logica_duracion_categorias') {
         // DURATION decide la categoría: la de esta plataforma con esa duración exacta.
@@ -535,6 +561,13 @@ class PlatformReportsEngine {
           categoriesResult = (cfg?.categorias || []).slice(0, 2).map((cat) => ({
             category_key: cat.key, label: cat.key, duration_minutes: Number(cat.duration) || 0, color: '#ccc',
           }));
+        } else if (logica === 'logica_duracion_rangos') {
+          // Categorías de la propia plataforma: [0] = 30, [1] = 60, [2] = 120 min, objetos
+          // {key, duration, effortRate}. La clave es el texto de la casilla (el mismo que usa
+          // classifyByDuration en byCategory).
+          categoriesResult = (cfg?.categorias || []).slice(0, DURACION_BANDS.length).map((cat, i) => ({
+            category_key: cat.key, label: cat.key, duration_minutes: DURACION_BANDS[i].minutes, color: '#ccc',
+          }));
         } else {
           // Categorías del store (logica_de_versiones, iberia_especial, etc.)
           const subPlatformParent = { 'BRAZIL': 'LATAM', 'LATAM': 'LATAM' };
@@ -665,7 +698,7 @@ class PlatformReportsEngine {
    * Calcula horas de esfuerzo por editor agrupadas por effortGroup de plataforma.
    *
    * Reglas por lógica:
-   *   - logica_de_versiones / iberia_especial / logica_sin_version:
+   *   - logica_de_versiones / iberia_especial / logica_sin_version / logica_duracion_rangos:
    *       Horas = Σ(count_categoría × effortRate_categoría)
    *   - logica_comerciales:
    *       Horas = totalSeconds / 3600
@@ -705,8 +738,9 @@ class PlatformReportsEngine {
       // Para logica_sin_version: mapa key → { effortRate, durationHours } desde p.categorias.
       // Cada casilla sin tasa cuenta con el estándar (1).
       const categoryKeyRateMap = {};
-      (p.categorias || []).forEach((cat) => {
-        const dur = Number(cat.duration) || 0;
+      (p.categorias || []).forEach((cat, i) => {
+        // logica_duracion_rangos: la fila cuenta con la duración de su banda (30 / 60 / 120)
+        const dur = p.logica === 'logica_duracion_rangos' ? (DURACION_BANDS[i]?.minutes || 0) : Number(cat.duration) || 0;
         if (cat.key) {
           categoryKeyRateMap[cat.key] = { effortRate: rateOrStandard(cat.effortRate), durationHours: dur / 60 };
         }
@@ -720,7 +754,7 @@ class PlatformReportsEngine {
         effortRates: p.effortRates || [],
         // Un solo mapa de tarifas por plataforma: las claves de byCategory son ids de
         // categoría (logica_de_versiones / iberia_especial) o el texto de la casilla
-        // (logica_sin_version). Nunca coinciden entre sí, así que se pueden buscar en
+        // (logica_sin_version / logica_duracion_rangos). Nunca coinciden entre sí, así que se pueden buscar en
         // el mismo mapa sin tener que decidir de antemano según la lógica.
         rateMap: { ...categoryInfoMap, ...categoryKeyRateMap },
       };
@@ -776,7 +810,7 @@ class PlatformReportsEngine {
               ? (part.minutes / 60) * rate          // por minuto
               : part.count * rate;                  // por pieza (COMERCIALES, YOUTUBE)
           } else {
-            // logica_de_versiones, iberia_especial, logica_sin_version, duracion_categorias:
+            // logica_de_versiones, iberia_especial, logica_sin_version, logica_duracion_rangos, duracion_categorias:
             // count × (duración de la categoría / 60) × tasa
             const info = rateMap[String(catKey)];
             if (info == null) return;

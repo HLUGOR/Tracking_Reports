@@ -19,6 +19,16 @@
 
 import { detectDurationFromSuffix, detectSubPlatform } from './versionRules';
 
+// logica_duracion_rangos: bandas de DURATION (minutos) → duración con la que cuenta la fila.
+// El orden es el de las casillas de la plataforma (1ª = 30, 2ª = 60, 3ª = 120).
+export const DURACION_BANDS = [
+  { from: 10, to: 30, minutes: 30 },
+  { from: 40, to: 60, minutes: 60 },
+  { from: 100, to: 240, minutes: 120 },
+];
+const DURACION_MIN = DURACION_BANDS[0].from;
+const DURACION_MAX = DURACION_BANDS[DURACION_BANDS.length - 1].to;
+
 class VersionMatcher {
   /**
    * Normaliza nombre de editor (trim + Title Case)
@@ -198,6 +208,44 @@ class VersionMatcher {
       category_key: key || (isPelicula ? 'pelicula' : 'serie'),
       duration_minutes: duration,
       registered: true,
+      subPlatform: null,
+    };
+  }
+
+  /**
+   * Para plataformas logica_duracion_rangos: clasifica por la columna DURATION (columna L del input)
+   * en una de 3 bandas fijas. La fila cuenta con la duración de la banda, no con la escrita:
+   *   10 a 30   → 30 min   (casilla 1)
+   *   40 a 60   → 60 min   (casilla 2)
+   *   100 a 240 → 120 min  (casilla 3)
+   * Valores entre bandas (31-39, 61-99) se redondean a la banda de borde más cercano
+   * (empate → la menor: 35 → 30, 80 → 60) y la fila sale con rounded: true para que el
+   * caller la avise en la auditoría. Vacío, 0, texto o fuera
+   * de 10-240 no se adivinan: registered: false.
+   *
+   * categorias = [{key, duration, effortRate}, ...]: 1ª = 30, 2ª = 60, 3ª = 120.
+   * (El formato antiguo de strings se convierte al cargar los datos: utils/platformCasillas.js)
+   *
+   * @param {number} minutes - DURATION ya convertida a minutos
+   * @returns {{ category_key: string|null, duration_minutes: number, registered: boolean, rounded: boolean, subPlatform: null }}
+   */
+  static classifyByDuration(minutes, platformConfig) {
+    const fail = { category_key: null, duration_minutes: 0, registered: false, rounded: false, subPlatform: null };
+    const m = Number(minutes);
+    if (!(m >= DURACION_MIN && m <= DURACION_MAX)) return fail;
+
+    const idx = DURACION_BANDS.findIndex((b) => m >= b.from && m <= b.to);
+    const inBand = idx >= 0;
+    // Entre bandas: la de borde más cercano (empate → la menor)
+    const dist = (b) => (m < b.from ? b.from - m : m - b.to);
+    const target = inBand ? idx : DURACION_BANDS.reduce((best, b, i) => (dist(b) < dist(DURACION_BANDS[best]) ? i : best), 0);
+    const cat = (platformConfig?.categorias || [])[target];
+    if (!cat?.key) return fail;
+    return {
+      category_key: cat.key,
+      duration_minutes: DURACION_BANDS[target].minutes,
+      registered: true,
+      rounded: !inBand,
       subPlatform: null,
     };
   }

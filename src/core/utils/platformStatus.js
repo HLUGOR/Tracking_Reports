@@ -40,6 +40,22 @@ export function platformProblems(platform, categories = []) {
     });
   }
 
+  if (logica === 'logica_duracion_rangos') {
+    const casillas = platform.categorias || [];
+    ['30 min', '60 min', '120 min'].forEach((label, i) => {
+      const c = casillas[i];
+      if (!c || !String(c.key || '').trim()) problems.push(`nombre de la casilla de ${label}`);
+      if (!c || !isValidRate(c.effortRate)) problems.push(`tasa de la casilla de ${label}`);
+    });
+    // Filas con PR / MC: su sub-tasa en cada casilla
+    const keys = casillas.map((c) => String(c?.key || '').trim()).filter(Boolean);
+    const codes = platform.effortRates || [];
+    if (codes.length === 0) problems.push('sub-tasas de esfuerzo (PR, MC…)');
+    codes.forEach((e) => {
+      if (keys.some((k) => !isValidRate(e.rates?.[k]))) problems.push(`tasas de "${e.code}" en las 3 casillas`);
+    });
+  }
+
   if (PLATFORM_RATE_LOGICAS.includes(logica) && !isValidRate(platform.platformEffortRate)) {
     problems.push('tasa de la plataforma');
   }
