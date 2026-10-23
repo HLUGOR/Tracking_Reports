@@ -8,7 +8,6 @@
  * Lógicas soportadas:
  *   - logica_de_versiones : busca VERSION en la librería → categoría + duración reales.
  *                           Si no está registrada NO se cuenta (no se estima nada).
- *   - logica_sin_version  : usa columna SEASON → serie (season != '0') o película (season = '0')
  *   - logica_duracion_rangos : DURATION (col. L) por rangos: 10-30 → 30 min, 40-60 → 60 min, 100-240 → 120 min
  *   - iberia_especial     : igual que logica_de_versiones, pero sin fallback (si no está registrada, no cuenta)
  *   - logica_comerciales  : suma DURATION en timecode (HH:MM:SS), cuenta assets
@@ -26,6 +25,7 @@
  */
 
 import VersionMatcher, { DURACION_BANDS } from './VersionMatcher';
+import { REMOVED_LOGICAS } from './logicaFamilies';
 import { checkVersionSuffix, DEFAULT_SUFFIX_RULES } from './versionRules';
 import { parseInputDate, approvedDateOf } from '../utils/dateUtils';
 import { buildEditorIndex, editorKey } from '../utils/editorRegistry';
@@ -218,7 +218,6 @@ class PlatformReportsEngine {
       let editor = VersionMatcher.normalizeEditorName(rawEditor);
       const version = String(row.version || row.VERSION || '').trim();
       const platform = String(row.platform || row.PLATFORM || '').trim().toUpperCase();
-      const season = String(row.season || row.SEASON || '').trim();
       // ── Fecha de aprobación: toda fila debe traerla (MM/DD/AAAA) ───────────
       // Si falta o no es válida se anota en la auditoría. Con "Todos los registros" la
       // fila se cuenta igual; con un rango de fechas no se puede ubicar y queda fuera.
@@ -285,17 +284,10 @@ class PlatformReportsEngine {
       // ── Clasificar según lógica ───────────────────────────────────────────
       let classified;
 
-      if (logica === 'logica_sin_version') {
-        // Usar columna SEASON, no la librería de versiones.
-        // Sin fallback: si la categoría de serie o película no tiene duración
-        // configurada, no se adivina — se descarta y queda visible en auditoría.
-        classified = VersionMatcher.classifyBySeason(season, cfg);
-        if (!classified.registered) {
-          discard(row, platform, season === '' || season === '0'
-            ? 'categoría de película sin duración configurada'
-            : 'categoría de serie sin duración configurada');
-          return;
-        }
+      if (REMOVED_LOGICAS.includes(logica)) {
+        // Lógica eliminada (ej. SEASON): la plataforma tiene que elegir otra en la librería
+        discard(row, platform, 'la lógica de esta plataforma ya no existe — elige otra en Librerías → Plataformas → ✏️ Editar', logica);
+        return;
       } else if (logica === 'logica_duracion_rangos') {
         // Sin EFFORT cuenta con la tasa estándar de la casilla; con PR / MC, su sub-tasa.
         // DURATION (columna L) elige la banda 30 / 60 / 120. Sin fallback: vacío, texto o
@@ -554,14 +546,7 @@ class PlatformReportsEngine {
         // ── Construir lista de categorías según lógica ────────────────────
         let categoriesResult;
 
-        if (logica === 'logica_sin_version') {
-          // Categorías de la propia plataforma: [0] = serie, [1] = película, objetos
-          // {key, duration, effortRate}. La clave es el texto de la casilla (el mismo que usa
-          // classifyBySeason en byCategory).
-          categoriesResult = (cfg?.categorias || []).slice(0, 2).map((cat) => ({
-            category_key: cat.key, label: cat.key, duration_minutes: Number(cat.duration) || 0, color: '#ccc',
-          }));
-        } else if (logica === 'logica_duracion_rangos') {
+        if (logica === 'logica_duracion_rangos') {
           // Categorías de la propia plataforma: [0] = 30, [1] = 60, [2] = 120 min, objetos
           // {key, duration, effortRate}. La clave es el texto de la casilla (el mismo que usa
           // classifyByDuration en byCategory).
@@ -637,16 +622,26 @@ class PlatformReportsEngine {
    * @returns {{ minutes: number, hours: number }}
    */
   static evaluateRow(row, library) {
+    const { minutes, hours } = this.evaluateRowDetail(row, library);
+    return { minutes, hours };
+  }
+
+  /**
+   * Igual que evaluateRow, y además dice si la fila SE CUENTA en los reportes (counted).
+   * Una fila descartada (editor sin registrar, versión no registrada…) no cuenta en ninguno.
+   * @returns {{ counted: boolean, minutes: number, hours: number }}
+   */
+  static evaluateRowDetail(row, library) {
     const rep = this.buildReport([row], null, null, library, 'all');
     const plt = rep.platforms[0];
-    if (!plt) return { minutes: 0, hours: 0 };
+    if (!plt) return { counted: false, minutes: 0, hours: 0 };
     const minutes = plt.logica === 'logica_comerciales' ? plt.totalSeconds / 60 : plt.totalMinutes;
     const eff = this.buildEffortReport(rep, library, 192);
     // Suma sin redondear (totalHours viene redondeado a 1 decimal para mostrar)
     const hours = eff.editors.reduce(
       (s, ed) => s + Object.values(ed.byGroup).reduce((a, h) => a + h, 0), 0
     );
-    return { minutes, hours };
+    return { counted: true, minutes, hours };
   }
 
   /**
@@ -698,7 +693,7 @@ class PlatformReportsEngine {
    * Calcula horas de esfuerzo por editor agrupadas por effortGroup de plataforma.
    *
    * Reglas por lógica:
-   *   - logica_de_versiones / iberia_especial / logica_sin_version / logica_duracion_rangos:
+   *   - logica_de_versiones / iberia_especial / logica_duracion_rangos:
    *       Horas = Σ(count_categoría × effortRate_categoría)
    *   - logica_comerciales:
    *       Horas = totalSeconds / 3600
@@ -735,7 +730,7 @@ class PlatformReportsEngine {
     const platCfgMap = {};
     libPlatforms.forEach((p) => {
       const name = (p.name || '').trim().toUpperCase();
-      // Para logica_sin_version: mapa key → { effortRate, durationHours } desde p.categorias.
+      // Para logica_duracion_rangos: mapa key → { effortRate, durationHours } desde p.categorias.
       // Cada casilla sin tasa cuenta con el estándar (1).
       const categoryKeyRateMap = {};
       (p.categorias || []).forEach((cat, i) => {
@@ -754,7 +749,7 @@ class PlatformReportsEngine {
         effortRates: p.effortRates || [],
         // Un solo mapa de tarifas por plataforma: las claves de byCategory son ids de
         // categoría (logica_de_versiones / iberia_especial) o el texto de la casilla
-        // (logica_sin_version / logica_duracion_rangos). Nunca coinciden entre sí, así que se pueden buscar en
+        // (logica_duracion_rangos). Nunca coinciden entre sí, así que se pueden buscar en
         // el mismo mapa sin tener que decidir de antemano según la lógica.
         rateMap: { ...categoryInfoMap, ...categoryKeyRateMap },
       };
@@ -810,7 +805,7 @@ class PlatformReportsEngine {
               ? (part.minutes / 60) * rate          // por minuto
               : part.count * rate;                  // por pieza (COMERCIALES, YOUTUBE)
           } else {
-            // logica_de_versiones, iberia_especial, logica_sin_version, logica_duracion_rangos, duracion_categorias:
+            // logica_de_versiones, iberia_especial, logica_duracion_rangos, duracion_categorias:
             // count × (duración de la categoría / 60) × tasa
             const info = rateMap[String(catKey)];
             if (info == null) return;

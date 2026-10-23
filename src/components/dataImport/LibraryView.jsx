@@ -7,7 +7,8 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import '../../styles/LibraryView.css';
 import libraryStore from '../../store/libraryStore';
-import { LOGICA_FAMILIES, familyOf } from '../../core/reportEngine/logicaFamilies';
+import { logicaOf } from '../../core/reportEngine/logicaFamilies';
+import LogicaPicker from './LogicaPicker';
 import { DEFAULT_RATE, isValidRate, RATE_INPUT_PROPS, rateFromInput, rateAsEffortPct } from '../../core/utils/rates';
 import { effortCode, platformEffortCode, PLATFORM_RATE_KEY } from '../../core/reportEngine/PlatformReportsEngine';
 import {
@@ -206,18 +207,12 @@ function LibraryView() {
       : [];
     const missingRates = [];
     if (usesPlatformRate && !isValidRate(platformRate)) missingRates.push('Tasa de Esfuerzo de la plataforma');
-    if (formData.logica === 'logica_sin_version') {
-      casillas.slice(0, 2).forEach((c, i) => {
-        if (!isValidRate(c.effortRate)) missingRates.push(`Tasa de la casilla ${i === 0 ? 'serie' : 'película'}`);
-      });
-    }
     if (formData.logica === 'logica_duracion_rangos') {
-      // Tasa estándar (filas sin EFFORT) en cada casilla; las filas con PR / MC usan su sub-tasa
+      // Tasa estándar (filas sin EFFORT) en cada casilla; si hay sub-tasas (PR, MC…) las filas con ese código usan la suya
       DURACION_BANDS.forEach((band, i) => {
         if (!String(casillas[i]?.key || '').trim()) missingRates.push(`Nombre de la casilla de ${band.minutes} min`);
         if (!isValidRate(casillas[i]?.effortRate)) missingRates.push(`Tasa estándar de la casilla de ${band.minutes} min`);
       });
-      if ((formData.effortRates || []).length === 0) missingRates.push('Al menos una sub-tasa de esfuerzo (PR, MC…) con su tasa en las 3 casillas');
     }
     platCatRates.forEach(({ cat, rate }) => {
       if (!isValidRate(rate)) missingRates.push(`Tasa de la categoría "${cat.name}"`);
@@ -253,11 +248,9 @@ function LibraryView() {
 
     const normalizedData = {
       ...formData,
-      categorias: formData.logica === 'logica_sin_version'
-        ? casillas
-        : formData.logica === 'logica_duracion_rangos'
-          ? casillas.slice(0, DURACION_BANDS.length).map((c, i) => ({ ...c, duration: DURACION_BANDS[i].minutes }))
-          : (formData.categorias || []),
+      categorias: formData.logica === 'logica_duracion_rangos'
+        ? casillas.slice(0, DURACION_BANDS.length).map((c, i) => ({ ...c, duration: DURACION_BANDS[i].minutes }))
+        : (formData.categorias || []),
       effortRates,
       displayName: String(formData.displayName || '').trim(),
       platformEffortRate: usesPlatformRate ? parseFloat(platformRate) : (formData.platformEffortRate ?? null),
@@ -660,11 +653,6 @@ function LibraryView() {
           cat: c,
         }));
     }
-    if (p.logica === 'logica_sin_version') {
-      return (p.categorias || []).slice(0, 2).map((c) => ({
-        key: c.key, label: c.key, duration: Number(c.duration) || null, rate: c.effortRate,
-      }));
-    }
     if (p.logica === 'logica_duracion_rangos') {
       return (p.categorias || []).slice(0, DURACION_BANDS.length).map((c, i) => ({
         key: c.key, label: c.key, duration: DURACION_BANDS[i].minutes, rate: c.effortRate,
@@ -789,7 +777,7 @@ function LibraryView() {
             {/* Feedback card post-creación */}
             {savedPlatformInfo && (() => {
               const l = savedPlatformInfo.logica;
-              const isSelfContained = l === 'logica_sin_version' || l === 'logica_duracion_rangos' || l === 'logica_comerciales' || l === 'logica_bp_i' || l === 'logica_por_duracion' || l === 'logica_youtube';
+              const isSelfContained = l === 'logica_duracion_rangos' || l === 'logica_comerciales' || l === 'logica_bp_i' || l === 'logica_por_duracion' || l === 'logica_youtube';
               return (
                 <div style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
@@ -806,7 +794,6 @@ function LibraryView() {
                         : `Plataforma "${savedPlatformInfo.name}" creada — requiere configuración`}
                     </strong>
                     <p style={{ margin: '0.25rem 0 0', color: isSelfContained ? '#166534' : '#78350f', lineHeight: 1.5 }}>
-                      {l === 'logica_sin_version' && 'Clasifica por columna SEASON automáticamente. No necesita Categorías ni Versiones.'}
                       {l === 'logica_duracion_rangos' && 'Clasifica por rango de DURATION (30 / 60 / 120 min). No necesita Categorías ni Versiones.'}
                       {l === 'logica_comerciales' && 'Cuenta assets y acumula DURATION. No necesita Categorías ni Versiones.'}
                       {l === 'logica_bp_i' && 'Cuenta assets y acumula MINUTOS netos. No necesita Categorías ni Versiones.'}
@@ -903,7 +890,7 @@ function LibraryView() {
                           setShowForm(true);
                         }
                       };
-                      const fam = familyOf(p.logica);
+                      const logicaOpt = logicaOf(p.logica);
                       const isCatLogic = CATEGORY_RATE_LOGICAS.includes(p.logica);
                       const isDurCat = p.logica === 'logica_duracion_categorias';
                       const rateRows = platformRateRows(p);
@@ -930,12 +917,12 @@ function LibraryView() {
                           )}
                         </td>
                         <td title={p.logica} style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                          {fam ? fam.title : p.logica}
+                          {logicaOpt ? logicaOpt.label : <span style={{ color: '#b91c1c' }}>{p.logica} (ya no existe)</span>}
                         </td>
                         <td style={{ fontSize: '0.82rem', color: '#475569' }}>
                           {isCatLogic
                             ? `${catCount} ${catCount === 1 ? 'categoría' : 'categorías'}`
-                            : p.logica === 'logica_sin_version' ? 'serie y película' : p.logica === 'logica_duracion_rangos' ? '30 / 60 / 120 min' : 'tasa única'}
+                            : p.logica === 'logica_duracion_rangos' ? '30 / 60 / 120 min' : 'tasa única'}
                         </td>
                         <td>
                           {problems.length === 0
@@ -1424,17 +1411,14 @@ function LibraryView() {
             </h3>
 
             {formTab === 'platforms' && (() => {
-              const fam = familyOf(formData.logica);
-              const opt = fam?.options.find((o) => o.value === formData.logica);
               const isCatLogic = CATEGORY_RATE_LOGICAS.includes(formData.logica);
-              const isSinVersion = formData.logica === 'logica_sin_version';
               const isRangos = formData.logica === 'logica_duracion_rangos';
               const isDurCat = formData.logica === 'logica_duracion_categorias';
               const efforts = formData.effortRates || [];
               const setEfforts = (next) => setFormData({ ...formData, effortRates: next });
               const setEffortRate = (i, key, value) => setEfforts(efforts.map((e, j) => (j === i
                 ? { ...e, rates: { ...(e.rates || {}), [key]: rateFromInput(value) } } : e)));
-              // Casillas de logica_sin_version (serie = 1ª, película = 2ª) y logica_duracion_rangos (30 / 60 / 120). Si cambia el nombre de
+              // Casillas de logica_duracion_rangos (30 / 60 / 120). Si cambia el nombre de
               // una casilla, sus sub-tasas por EFFORT se mueven a la clave nueva.
               const updateCasilla = (idx, patch) => {
                 const cats = [...(formData.categorias || [])];
@@ -1464,12 +1448,12 @@ function LibraryView() {
                       setStd: (v) => setCatRateEdits({ ...catRateEdits, [key]: v }),
                     };
                   });
-              } else if (isSinVersion || isRangos) {
-                rateRows = (isRangos ? [0, 1, 2] : [0, 1]).map((idx) => {
+              } else if (isRangos) {
+                rateRows = [0, 1, 2].map((idx) => {
                   const c = (formData.categorias || [])[idx] || { key: '', duration: '', effortRate: null };
                   return {
                     key: c.key || `__casilla${idx}`, casillaIdx: idx, name: c.key,
-                    duration: isRangos ? DURACION_BANDS[idx].minutes : c.duration,
+                    duration: DURACION_BANDS[idx].minutes,
                     std: shownRate(c.effortRate),
                     setStd: (v) => updateCasilla(idx, { effortRate: rateFromInput(v) }),
                   };
@@ -1488,8 +1472,6 @@ function LibraryView() {
                   {rateAsEffortPct(value) && <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{rateAsEffortPct(value)}</div>}
                 </>
               );
-              const missingCasillaDuration = isSinVersion
-                && (!(formData.categorias || [])[0]?.duration || !(formData.categorias || [])[1]?.duration);
               return (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.6rem 1rem' }}>
@@ -1504,22 +1486,6 @@ function LibraryView() {
                         onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} />
                     </div>
                     <div>
-                      <FieldLabel
-                        text="Lógica de cálculo"
-                        info={fam && opt ? <><strong>{fam.title}</strong> — {fam.desc}<br />{opt.desc}</> : 'Elige cómo se calculan los minutos de esta plataforma.'}
-                      />
-                      <select value={formData.logica || ''} onChange={(e) => setFormData({ ...formData, logica: e.target.value })}>
-                        <option value="">— Selecciona tipo de lógica —</option>
-                        {LOGICA_FAMILIES.map((family) => (
-                          <optgroup key={family.key} label={`${family.title} — columna ${family.column}`}>
-                            {family.options.map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
                       <FieldLabel text="Grupo de esfuerzo" info="Nombre de la columna donde suman sus horas en el Reporte Editores. Plataformas con el mismo grupo suman juntas (ej. LATAM y BRAZIL)." />
                       <input type="text" list="effort-group-options" placeholder="ej. LATAM" value={formData.effortGroup || ''}
                         onChange={(e) => setFormData({ ...formData, effortGroup: e.target.value.toUpperCase() })} />
@@ -1529,6 +1495,12 @@ function LibraryView() {
                         ))}
                       </datalist>
                     </div>
+                  </div>
+
+                  <div style={{ marginTop: '0.6rem' }}>
+                    <FieldLabel text="Lógica de cálculo" info="Cómo se cuentan las filas de esta plataforma. Cada opción dice qué columna del input usa y qué plataformas la usan hoy." />
+                    <LogicaPicker collapsible value={formData.logica || ''}
+                      onChange={(v) => setFormData({ ...formData, logica: v })} />
                   </div>
 
                   {formData.logica && (
@@ -1545,7 +1517,6 @@ function LibraryView() {
                           que no coincide va a la Auditoría. Celda vacía en un EFFORT = ese código no aplica a esa
                           duración (la fila va a la Auditoría).
                           {isDurCat && <> Un código con <strong>REPROSS</strong> (REPROSS, 2P REPROSS) es reproceso: esas filas van en su columna R.</>}
-                          {isSinVersion && <> La 1ª fila es la serie (SEASON con valor) y la 2ª la película (SEASON vacío o 0).</>}
                           {isRangos && <> Las 3 filas son las casillas de 30, 60 y 120 min: la columna DURATION del input elige la casilla (10-30 → 30, 40-60 → 60, 100-240 → 120). La fila con EFFORT PR o MC usa la sub-tasa de ese código en esa casilla; sin EFFORT usa la tasa estándar de la casilla.</>}
                           {isCatLogic && <> Las categorías se crean al desplegar la plataforma (➕ Nueva categoría); aquí se editan sus tasas.</>}
                         </>}
@@ -1590,22 +1561,18 @@ function LibraryView() {
                                   <td>
                                     {r.casillaIdx !== undefined ? (
                                       <>
-                                        <input type="text" placeholder={isRangos ? `nombre (${r.duration} min)` : (r.casillaIdx === 0 ? 'serie (45 min)' : 'pelicula (120 min)')}
+                                        <input type="text" placeholder={`nombre (${r.duration} min)`}
                                           value={r.name || ''} onChange={(e) => updateCasilla(r.casillaIdx, { key: e.target.value })}
                                           style={{ width: '150px', padding: '0.3rem 0.4rem' }} />
                                         <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                                          {isRangos ? `Casilla de ${r.duration} min` : (r.casillaIdx === 0 ? 'Serie' : 'Película')}
+                                          {`Casilla de ${r.duration} min`}
                                         </div>
                                       </>
                                     ) : r.name}
                                   </td>
                                   <td>
                                     {r.casillaIdx !== undefined ? (
-                                      isRangos ? <span>{r.duration} min</span> : (
-                                        <input type="number" min="1" placeholder="min" value={r.duration || ''}
-                                          onChange={(e) => updateCasilla(r.casillaIdx, { duration: e.target.value ? parseInt(e.target.value, 10) : '' })}
-                                          style={{ width: '70px', padding: '0.3rem 0.4rem', borderColor: r.duration ? undefined : '#fca5a5' }} />
-                                      )
+                                      <span>{r.duration} min</span>
                                     ) : (r.duration ? `${r.duration} min` : '—')}
                                   </td>
                                   <td style={{ textAlign: 'center' }}>{rateCell(r.std, r.setStd)}</td>
@@ -1622,9 +1589,6 @@ function LibraryView() {
                             </tbody>
                           </table>
                         </div>
-                      )}
-                      {missingCasillaDuration && (
-                        <small style={{ color: '#b91c1c' }}>⚠️ Serie y película necesitan su duración en minutos.</small>
                       )}
                       {isCatLogic && editingId && (() => {
                         const base = platNewCat.name.trim().replace(/\s*\(?\d+\s*min\)?\s*$/i, '');

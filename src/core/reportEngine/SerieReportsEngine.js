@@ -43,7 +43,10 @@ class SerieReportsEngine {
         if (!rowDate || !start || !end || rowDate < start || rowDate > end) return;
       }
 
-      const { minutes: duration, hours: effortHours } = PlatformReportsEngine.evaluateRow(row, library);
+      // Una fila que el reporte de plataformas descarta (editor sin registrar, versión no
+      // registrada…) tampoco cuenta aquí: ni como asset ni con su HN.
+      const { counted, minutes: duration, hours: effortHours } = PlatformReportsEngine.evaluateRowDetail(row, library);
+      if (!counted) return;
 
       if (!serieMap[serie]) {
         serieMap[serie] = { serie, hns: new Set(), totalDuration: 0, totalEffortHours: 0, count: 0 };

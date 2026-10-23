@@ -126,6 +126,19 @@ function EditorReportsView() {
     }
   };
 
+  // ── Promedio por editor (fila al pie de la tabla y del Excel) ───────────────
+  const r1 = (x) => Math.round(x * 10) / 10;
+  const averages = (effort) => {
+    const eds = effort?.editors || [];
+    const mean = (f) => (eds.length ? eds.reduce((s, ed) => s + f(ed), 0) / eds.length : 0);
+    return {
+      byGroup: Object.fromEntries((effort?.effortGroups || []).map((g) => [g, r1(mean((ed) => ed.byGroup[g] || 0))])),
+      totalHours: r1(mean((ed) => ed.totalHours)),
+      pctOcupacion: r1(mean((ed) => ed.pctOcupacion)),
+      pctFreeTime: r1(mean((ed) => ed.pctFreeTime)),
+    };
+  };
+
   // ── Exportar Excel ─────────────────────────────────────────────────────────
   const handleExportExcel = async () => {
     if (!reportData) return;
@@ -206,11 +219,13 @@ function EditorReportsView() {
         const pct = ed.pctOcupacion;
         pctCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pct >= 70 ? 'FFFEF2F2' : 'FFF0FDF4' } };
         pctCell.font = { bold: true, color: { argb: pct >= 70 ? 'FFB91C1C' : 'FF15803D' } };
-        pctCell.value = `${pct}%`;
+        pctCell.value = pct;
+        pctCell.numFmt = '0.0"%"';
         const freeCell = row.getCell(groups.length + 4);
         freeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDF4' } };
         freeCell.font = { bold: true, color: { argb: 'FF15803D' } };
-        freeCell.value = `${ed.pctFreeTime}%`;
+        freeCell.value = ed.pctFreeTime;
+        freeCell.numFmt = '0.0"%"';
       });
 
       const totRow = ws2.addRow([
@@ -225,6 +240,23 @@ function EditorReportsView() {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
         cell.alignment = { horizontal: colNum === 1 ? 'left' : 'center', vertical: 'middle' };
         cell.border = { top: { style: 'medium', color: { argb: 'FF94A3B8' } } };
+      });
+
+      // Promedio por editor: cada columna entre la cantidad de editores del reporte
+      const avg = averages(reportData.effort);
+      const avgRow = ws2.addRow([
+        e('Promedio por editor'),
+        ...groups.map((g) => avg.byGroup[g]),
+        avg.totalHours,
+        avg.pctOcupacion,
+        avg.pctFreeTime,
+      ]);
+      avgRow.height = 22;
+      avgRow.eachCell((cell, colNum) => {
+        cell.font = { bold: true, italic: true, color: { argb: 'FF475569' }, size: 11 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+        cell.alignment = { horizontal: colNum === 1 ? 'left' : 'center', vertical: 'middle' };
+        if (colNum >= groups.length + 3) cell.numFmt = '0.0"%"';
       });
     }
 
@@ -569,10 +601,23 @@ function EditorReportsView() {
                         <td style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#1e293b' }}>
                           {Math.round(reportData.effort.editors.reduce((s, e) => s + e.totalHours, 0) * 10) / 10}
                         </td>
-                        <td colSpan={3} style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#475569', fontSize: '0.8rem' }}>
-                          {t('Promedio por editor')}
-                        </td>
+                        <td colSpan={3}></td>
                       </tr>
+                      {(() => {
+                        const avg = averages(reportData.effort);
+                        return (
+                          <tr style={{ background: '#f1f5f9', fontWeight: 600, fontStyle: 'italic' }}>
+                            <td style={{ padding: '0.6rem 1.1rem', color: '#475569' }}>{t('Promedio por editor')}</td>
+                            {reportData.effort.effortGroups.map((g) => (
+                              <td key={g} style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#475569' }}>{avg.byGroup[g]}</td>
+                            ))}
+                            <td style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#475569' }}>{avg.totalHours}</td>
+                            <td style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#475569' }}>{avg.pctOcupacion}%</td>
+                            <td style={{ padding: '0.6rem 0.85rem', textAlign: 'center', color: '#475569' }}>{avg.pctFreeTime}%</td>
+                            <td></td>
+                          </tr>
+                        );
+                      })()}
                     </tfoot>
                   </table>
                 </div>

@@ -1,5 +1,5 @@
 /**
- * Reglas básicas: fechas, tasas, sufijos de versión, SEASON y nombres de editor.
+ * Reglas básicas: fechas, tasas, sufijos de versión, rangos de DURATION y nombres de editor.
  */
 import { parseInputDate, formatDisplayDate, formatPeriod } from '../utils/dateUtils';
 import { isValidRate, rateFromInput } from '../utils/rates';
@@ -54,19 +54,6 @@ describe('Sufijos de versión (numeración cerrada 1-4 / 5-6 / 9-10)', () => {
     expect(detectSubPlatform('LAT_ORI_SQZ_HD 3')).toBe('LATAM');
     expect(detectSubPlatform('BRA_SAP_CC_SQZ_HD 5')).toBe('BRAZIL');
     expect(detectSubPlatform('p- F HD IBERIA')).toBeNull();
-  });
-});
-
-describe('Regla de SEASON (sin versión)', () => {
-  const cfg = { categorias: [{ key: 'serie', duration: 45 }, { key: 'pelicula', duration: 120 }] };
-  test('SEASON vacío o 0 → película; con valor → serie', () => {
-    expect(VersionMatcher.classifyBySeason('', cfg).duration_minutes).toBe(120);
-    expect(VersionMatcher.classifyBySeason('0', cfg).duration_minutes).toBe(120);
-    expect(VersionMatcher.classifyBySeason('3', cfg).duration_minutes).toBe(45);
-  });
-  test('sin duración configurada no se inventa: no registrada', () => {
-    const r = VersionMatcher.classifyBySeason('3', { categorias: [{ key: 'serie', duration: '' }, { key: 'p', duration: 120 }] });
-    expect(r.registered).toBe(false);
   });
 });
 

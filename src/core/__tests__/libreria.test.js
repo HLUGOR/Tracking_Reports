@@ -39,7 +39,7 @@ describe('Respaldo con casillas en formato antiguo', () => {
   test('al restaurar conserva la duración de serie y película', () => {
     libraryStore.getState().importLibraryData({
       platforms: [{
-        id: 3, name: 'SONY ONE', logica: 'logica_sin_version',
+        id: 3, name: 'SONY ONE', logica: 'logica_duracion_rangos',
         categorias: ['serie_45min', 'pelicula_120min'], duracion_serie_minutos: 45, duracion_pelicula_minutos: 120,
       }],
       categories: [], versions: [],

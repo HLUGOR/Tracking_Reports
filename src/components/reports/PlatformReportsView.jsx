@@ -463,19 +463,20 @@ function PlatformReportsView() {
     // ── Hoja RESUMEN ───────────────────────────────────────────────────────
     const wsRes = wb.addWorksheet(e('Resumen'));
 
-    // Una columna por tipo de contenido (nombre + duración), juntando todas las
-    // plataformas: cada plataforma tiene su propia categoría "serie (60 min)" en la
-    // librería, pero en el resumen deben sumar en la misma columna. Solo se incluyen
-    // tipos con al menos un ítem en el período (sin columnas llenas de ceros).
+    // Una columna por DURACIÓN (30 min, 60 min, 120 min), juntando todas las plataformas:
+    // cada una nombra distinto sus categorías ("serie (60 min)", "Series (60 min)", "Cat (60 min)"),
+    // pero en el resumen todas las de 60 min suman en la misma columna. Lo que no tiene
+    // duración (clips, shorts, sin registrar) va por su nombre. Solo columnas con algún ítem.
     const summaryCols = {}; // clave en minúsculas → { label, duration, unregistered }
     const countsByPlatform = reportData.platforms.map((plt) => {
       const counts = {};
       Object.entries(plt.totalByCategory).forEach(([key, val]) => {
         if (!val.count) return;
         const def = (plt.categories || []).find((c) => c.category_key === key);
-        const label = def ? buildCategoryLabel(def) : String(key);
-        const colKey = label.toLowerCase();
-        summaryCols[colKey] ??= { label, duration: def?.duration_minutes || 0, unregistered: key === 'unregistered' };
+        const duration = def?.duration_minutes || 0;
+        const label = duration > 0 ? `${duration} min` : (def ? buildCategoryLabel(def) : String(key));
+        const colKey = (duration > 0 ? `d${duration}` : label).toLowerCase();
+        summaryCols[colKey] ??= { label, duration, unregistered: key === 'unregistered' };
         counts[colKey] = (counts[colKey] || 0) + val.count;
       });
       return counts;

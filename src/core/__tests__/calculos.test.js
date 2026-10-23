@@ -36,12 +36,31 @@ describe('Con versión (LATAM / BRAZIL / IBERIA)', () => {
   });
 });
 
-describe('Sin versión (SEASON) — AMAZON', () => {
-  test('SEASON vacío → película 120 min × 3', () => {
-    expect(evalRow(row({ platform: 'AMAZON', season: '' }))).toEqual({ minutes: 120, hours: 6 });
+describe('Lógica eliminada (SEASON)', () => {
+  const legacy = { ...library, platforms: [...library.platforms, { id: 99, name: 'ANTIGUA', logica: 'logica_sin_version', effortGroup: 'X', categorias: [] }] };
+  test('una plataforma con la lógica antigua no cuenta y la Auditoría dice por qué', () => {
+    const rep = build([row({ platform: 'ANTIGUA', season: '2', duration: '60', excelRow: 3 })], legacy);
+    expect(rep.platforms).toHaveLength(0);
+    expect(rep.audit.discardedByReason[0]).toMatchObject({ platform: 'ANTIGUA', rows: [3] });
+    expect(rep.audit.discardedByReason[0].motivo).toMatch(/ya no existe/);
   });
-  test('SEASON con valor → serie 45 min × 1.5 (DURATION no interviene)', () => {
-    expect(evalRow(row({ platform: 'AMAZON', season: '2', duration: '30' }))).toEqual({ minutes: 45, hours: 0.75 * 1.5 });
+});
+
+describe('AMAZON (DURATION exacta: 30, 60 o 120, solo tasa estándar)', () => {
+  test('30 serie × 2.7, 60 serie × 2, 120 película × 1.6', () => {
+    expect(evalRow(row({ platform: 'AMAZON', duration: '30' })).hours).toBeCloseTo(0.5 * 2.7);
+    expect(evalRow(row({ platform: 'AMAZON', duration: '60' }))).toEqual({ minutes: 60, hours: 2 });
+    expect(evalRow(row({ platform: 'AMAZON', duration: '120' })).hours).toBeCloseTo(2 * 1.6);
+  });
+  test('una duración que no es exacta (45) no cuenta: Auditoría', () => {
+    const rep = build([row({ platform: 'AMAZON', duration: '45', excelRow: 5 })]);
+    expect(rep.platforms).toHaveLength(0);
+    expect(rep.audit.discardedByReason[0]).toMatchObject({ platform: 'AMAZON', motivo: 'duración sin categoría registrada', rows: [5] });
+  });
+  test('AMAZON no tiene MC ni PR: esa fila va a Auditoría', () => {
+    const rep = build([row({ platform: 'AMAZON', duration: '60', effort: 'MC' })]);
+    expect(rep.platforms).toHaveLength(0);
+    expect(rep.audit.discardedByReason[0]).toMatchObject({ platform: 'AMAZON', values: ['MC'] });
   });
 });
 
@@ -241,15 +260,29 @@ describe('Reporte Series = misma tasa que Editores', () => {
   test('las horas de una serie son la suma de las horas de sus filas en Editores', () => {
     const rows = [
       row({ platform: 'LATAM', version: 'LAT_ORI_HD 3', serie: 'Serie A', hn: '1' }),
-      row({ platform: 'AMAZON', season: '1', serie: 'Serie A', hn: '2' }),
+      row({ platform: 'AMAZON', duration: '60', serie: 'Serie A', hn: '2' }),
       row({ platform: 'GSN VOD', duration: '60', serie: 'Serie B', hn: '3' }),
     ];
     const series = SerieReportsEngine.buildReport(rows, null, null, 'all', library);
     const a = series.series.find((s) => s.serie === 'Serie A');
-    expect(a.totalEffortHours).toBeCloseTo(0.5 * 1.75 + 0.75 * 1.5);
+    expect(a.totalEffortHours).toBeCloseTo(0.5 * 1.75 + 1 * 2);
     expect(a.hnCount).toBe(2);
     const effort = PlatformReportsEngine.buildEffortReport(build(rows), library);
     const editorsTotal = effort.editors.reduce((s, e) => s + Object.values(e.byGroup).reduce((x, y) => x + y, 0), 0);
     expect(series.grandEffortHours).toBeCloseTo(editorsTotal);
+  });
+});
+
+describe('Reporte Series: solo cuenta lo que cuentan los otros reportes', () => {
+  test('una fila descartada (editor sin registrar) no suma ni como asset ni con su HN', () => {
+    const rows = [
+      row({ platform: 'LATAM', version: 'LAT_ORI_HD 3', serie: 'Serie A', hn: '1' }),
+      row({ platform: 'LATAM', version: 'LAT_ORI_HD 3', serie: 'Serie B', hn: '9', editor: 'Nadie Registrado' }),
+    ];
+    const series = SerieReportsEngine.buildReport(rows, null, null, 'all', library);
+    expect(series.series.map((x) => x.serie)).toEqual(['Serie A']);
+    expect(series.grandCount).toBe(1);
+    expect(series.series[0].hns).toEqual(['1']);
+    expect(PlatformReportsEngine.evaluateRowDetail(rows[1], library).counted).toBe(false);
   });
 });

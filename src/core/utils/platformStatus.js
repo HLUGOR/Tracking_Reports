@@ -5,6 +5,7 @@
  * así nunca dicen cosas distintas.
  */
 import { isValidRate } from './rates';
+import { REMOVED_LOGICAS } from '../reportEngine/logicaFamilies';
 
 // Lógicas cuya tasa va en cada categoría de la librería (📂 Categorías)
 export const CATEGORY_RATE_LOGICAS = ['logica_de_versiones', 'iberia_especial', 'logica_duracion_categorias'];
@@ -31,13 +32,8 @@ export function platformProblems(platform, categories = []) {
     });
   }
 
-  if (logica === 'logica_sin_version') {
-    const casillas = platform.categorias || [];
-    ['serie', 'película'].forEach((label, i) => {
-      const c = casillas[i];
-      if (!c || !(Number(c.duration) > 0)) problems.push(`duración de la casilla ${label}`);
-      if (!c || !isValidRate(c.effortRate)) problems.push(`tasa de la casilla ${label}`);
-    });
+  if (REMOVED_LOGICAS.includes(logica)) {
+    problems.push('lógica de cálculo (la anterior ya no existe: elige otra)');
   }
 
   if (logica === 'logica_duracion_rangos') {
@@ -47,10 +43,9 @@ export function platformProblems(platform, categories = []) {
       if (!c || !String(c.key || '').trim()) problems.push(`nombre de la casilla de ${label}`);
       if (!c || !isValidRate(c.effortRate)) problems.push(`tasa de la casilla de ${label}`);
     });
-    // Filas con PR / MC: su sub-tasa en cada casilla
+    // Sub-tasas (PR, MC…) opcionales; las que existan deben traer su tasa en cada casilla
     const keys = casillas.map((c) => String(c?.key || '').trim()).filter(Boolean);
     const codes = platform.effortRates || [];
-    if (codes.length === 0) problems.push('sub-tasas de esfuerzo (PR, MC…)');
     codes.forEach((e) => {
       if (keys.some((k) => !isValidRate(e.rates?.[k]))) problems.push(`tasas de "${e.code}" en las 3 casillas`);
     });

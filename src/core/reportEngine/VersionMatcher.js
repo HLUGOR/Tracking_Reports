@@ -177,42 +177,6 @@ class VersionMatcher {
   }
 
   /**
-   * Para plataformas logica_sin_version: clasifica por columna SEASON.
-   * season != '0' y no vacío → primera categoría (serie)
-   * season = '0' o vacío    → segunda categoría (película)
-   *
-   * categorias = [{key, duration, effortRate}, ...]: primera = serie, segunda = película.
-   * (El formato antiguo de strings se convierte al cargar los datos: utils/platformCasillas.js)
-   *
-   * SIN valores por defecto: si la categoría correspondiente no tiene una duración
-   * configurada (> 0), no se adivina ningún número — se devuelve registered: false
-   * para que el caller descarte la fila y quede visible en la auditoría, en vez de
-   * contarla con un valor inventado (60/120 no son un respaldo válido, son un dato
-   * de negocio que el administrador tiene que haber configurado).
-   *
-   * @returns {{ category_key: string|null, duration_minutes: number, registered: boolean, subPlatform: null }}
-   */
-  static classifyBySeason(seasonVal, platformConfig) {
-    const season = String(seasonVal || '').trim();
-    const isPelicula = season === '' || season === '0';
-
-    const cats = platformConfig?.categorias || [];
-    const cat = isPelicula ? cats[1] : cats[0];
-    const key = cat?.key;
-    const duration = Number(cat?.duration) || 0;
-
-    if (duration <= 0) {
-      return { category_key: null, duration_minutes: 0, registered: false, subPlatform: null };
-    }
-    return {
-      category_key: key || (isPelicula ? 'pelicula' : 'serie'),
-      duration_minutes: duration,
-      registered: true,
-      subPlatform: null,
-    };
-  }
-
-  /**
    * Para plataformas logica_duracion_rangos: clasifica por la columna DURATION (columna L del input)
    * en una de 3 bandas fijas. La fila cuenta con la duración de la banda, no con la escrita:
    *   10 a 30   → 30 min   (casilla 1)

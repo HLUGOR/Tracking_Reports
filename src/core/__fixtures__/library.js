@@ -23,13 +23,7 @@ export const library = {
         { code: 'MC', rates: { 'cat 30 (30 min)': 0.2, 'cat 60 (60 min)': 0.2, 'cat 120 (120 min)': 0.2 } },
       ],
     },
-    {
-      id: 13, name: 'AMAZON', logica: 'logica_sin_version', effortGroup: 'DIGITAL',
-      categorias: [
-        { key: 'serie (45 min)', duration: 45, effortRate: 1.5 },
-        { key: 'pelicula (120 min)', duration: 120, effortRate: 3 },
-      ],
-    },
+    { id: 13, name: 'AMAZON', logica: 'logica_duracion_categorias', effortGroup: 'AMAZON', categorias: [] },
     {
       id: 4, name: 'GSN VOD', logica: 'logica_por_duracion', effortGroup: 'COMPLIANCE', platformEffortRate: 1.5, categorias: [],
       effortRates: [{ code: 'MC', rates: { __platform__: 0.12 } }],
@@ -55,6 +49,9 @@ export const library = {
     { id: 30, name: 'Series (30 min)', duration: 30, platformId: 8, effortRate: 1 },
     { id: 31, name: 'Series (60 min)', duration: 60, platformId: 8, effortRate: 1 },
     { id: 32, name: 'Peliculas (120 min)', duration: 120, platformId: 8, effortRate: 1 },
+    { id: 40, name: 'Series (30 min)', duration: 30, platformId: 13, effortRate: 2.7 },
+    { id: 41, name: 'Series (60 min)', duration: 60, platformId: 13, effortRate: 2 },
+    { id: 42, name: 'Peliculas (120 min)', duration: 120, platformId: 13, effortRate: 1.6 },
   ],
   versions: [
     { id: 100, name: 'LAT_ORI_HD 3', categoryId: 10, platformId: 1, duration: 30 },

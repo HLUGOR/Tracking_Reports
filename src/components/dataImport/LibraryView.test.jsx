@@ -179,3 +179,38 @@ test('buscar plataforma filtra la lista por nombre o grupo, sin mayúsculas', ()
   fireEvent.click(screen.getByText('✕'));
   expect(screen.getByText('LATAM & Brasil Networks')).toBeInTheDocument();
 });
+
+test('editar plataforma: se cambia la lógica con tarjetas y se agregan categorías con su tasa y sub-tasas', () => {
+  render(<LibraryView />);
+  const row = screen.getByText('SONY ONE').closest('tr');
+  fireEvent.click(within(row).getByTitle('Editar plataforma y sus tasas'));
+  const modal = within(document.querySelector('.form-modal'));
+  expect(modal.getByText('Rangos de duración (30 / 60 / 120)')).toBeInTheDocument(); // lógica actual, con su nombre
+  expect(modal.getByText(/DURATION se agrupa/)).toBeInTheDocument(); // explicación visible
+  expect(screen.queryByText('➕ Nueva categoría')).not.toBeInTheDocument(); // rangos: 3 casillas fijas
+  fireEvent.click(screen.getByText('Cambiar lógica'));
+  expect(modal.getByText('Por versión registrada (códigos IBERIA)')).toBeInTheDocument();
+  expect(modal.queryByText('logica_sin_version')).not.toBeInTheDocument(); // SEASON ya no existe
+  fireEvent.click(modal.getByText('Categorías por duración exacta'));
+  expect(screen.getByText('➕ Nueva categoría')).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText('Nombre (ej. serie, pelicula)'), { target: { value: 'Series' } });
+  fireEvent.change(screen.getByPlaceholderText('min'), { target: { value: '30' } });
+  fireEvent.change(screen.getByPlaceholderText('Tasa'), { target: { value: '2.7' } });
+  fireEvent.click(screen.getByText('➕ Agregar'));
+  const plat = libraryStore.getState().platforms.find((p) => p.name === 'SONY ONE');
+  const cat = libraryStore.getState().categories.find((c) => String(c.platformId) === String(plat.id));
+  expect(cat).toMatchObject({ name: 'Series (30 min)', duration: 30, effortRate: 2.7 });
+  expect(screen.getByDisplayValue('2.7')).toBeInTheDocument(); // aparece como fila de la tabla de tasas
+});
+
+test('plataforma con la lógica eliminada: se ve marcada y pide elegir otra', () => {
+  libraryStore.getState().importLibraryData(JSON.parse(JSON.stringify({
+    ...library,
+    platforms: [...library.platforms, { id: 99, name: 'ANTIGUA', logica: 'logica_sin_version', effortGroup: 'X', categorias: [] }],
+  })));
+  render(<LibraryView />);
+  const row = screen.getByText('ANTIGUA').closest('tr');
+  expect(within(row).getByText(/logica_sin_version \(ya no existe\)/)).toBeInTheDocument();
+  fireEvent.click(within(row).getByTitle('Editar plataforma y sus tasas'));
+  expect(screen.getByText(/ya no existe\. Elige una nueva/)).toBeInTheDocument();
+});
